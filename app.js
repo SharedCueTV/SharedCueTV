@@ -1358,6 +1358,9 @@ document.addEventListener("keydown", e => {
   else if (e.key === "f") toggleFs();
 });
 
+// Diagnose in der Browser-Konsole: __sharedcue()
+window.__sharedcue = () => ({ synced, leader: (leader() || {}).name, isLeader: isLeader(), people: people.map(p => p.name), video: vkey(state.video), loadedKey, pb: { ...state.pb }, expected: +expectedPos().toFixed(2), playerTime: player && player.ready ? +player.time().toFixed(2) : null, playing: player && player.ready ? player.isPlaying() : null, buffering: player && player.ready ? player.isBuffering() : null, ytState: player && player.p && player.p.getPlayerState ? player.p.getPlayerState() : null, gestureNeeded, lastCorrection: now() - lastCorrection, rate: RATE() });
+
 // ---------------------------------------------------------------- Boot
 function boot() {
   $("#modeNote").hidden = HAS_SUPA;
