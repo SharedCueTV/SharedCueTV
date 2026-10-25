@@ -234,7 +234,7 @@ class YTAdapter {
     await new Promise(resolve => {
       this.p = new YT.Player(el.id, {
         width: "100%", height: "100%", videoId: ref,
-        playerVars: { autoplay: playing ? 1 : 0, controls: 0, disablekb: 1, modestbranding: 1, rel: 0, playsinline: 1, iv_load_policy: 3, fs: 0, start: Math.floor(pos), origin: location.origin && location.origin !== "null" ? location.origin : undefined },
+        playerVars: { autoplay: playing ? 1 : 0, controls: 1, disablekb: 1, modestbranding: 1, rel: 0, playsinline: 1, iv_load_policy: 3, fs: 0, start: Math.floor(pos), origin: location.origin && location.origin !== "null" ? location.origin : undefined },
         events: {
           onReady: () => { this.ready = true; this.cb.volume(this); if (pos) this.p.seekTo(pos, true); if (playing) this.p.playVideo(); resolve(); },
           onStateChange: e => { if (e.data === 1) this.started = true; if (e.data === 0) this.cb.ended(); },
@@ -285,6 +285,9 @@ class TwitchAdapter {
   isPlaying() { return this.ready && !this.p.isPaused(); }
   isBuffering() { return false; }
   setVolume(v, muted) { if (!this.ready) return; this.p.setVolume(v / 100); this.p.setMuted(!!muted); }
+  qualities() { try { return (this.p.getQualities() || []).filter(q => q.group); } catch { return []; } }
+  quality() { try { return this.p.getQuality(); } catch { return ""; } }
+  setQuality(g) { try { this.p.setQuality(g); } catch {} }
   destroyInner() { this.host.innerHTML = ""; this.p = null; this.ready = false; this.started = false; }
   destroy() { this.destroyInner(); }
 }
@@ -728,6 +731,7 @@ setInterval(() => {
   // ("Start Watching" bei Twitch) und Einwilligungen im Player anklickbar
   const shieldOn = !!(player && player.ready && player.started && !manual);
   $("#shield").style.pointerEvents = shieldOn ? "auto" : "none";
+  $("#shield").classList.toggle("yt-hole", !!(player && player.kind === "yt"));
   if (!player || !player.ready || !state.video) { $("#timeTxt").textContent = "0:00 / 0:00"; setRange($("#seek"), 0); return; }
   if (manual) { $("#timeTxt").textContent = "Instagram · per Countdown"; setRange($("#seek"), 0); return; }
   if (player.live) { $("#timeTxt").textContent = "● LIVE"; setRange($("#seek"), 1000); return; }
@@ -735,6 +739,36 @@ setInterval(() => {
   if (!seeking) { setRange($("#seek"), d ? (t / d) * 1000 : 0); $("#timeTxt").textContent = `${fmt(t)} / ${fmt(d)}`; }
 }, 250);
 function setRange(el, v) { el.value = v; el.style.setProperty("--p", (v / el.max) * 100 + "%"); }
+
+
+// Qualität: Twitch über die Player-API, YouTube über das eigene Zahnrad im Video
+// (YouTube hat das Setzen der Qualität per API abgeschafft)
+function openQuality() {
+  const menu = $("#qualMenu");
+  if (!menu.hidden) { menu.hidden = true; return; }
+  if (!player || !player.ready) { toast("Erst ein Video starten."); return; }
+  if (player.kind === "yt") {
+    const st = $(".stage"); st.classList.add("show-gear");
+    setTimeout(() => st.classList.remove("show-gear"), 4000);
+    toast("Qualität: unten rechts im Video aufs Zahnrad klicken → Qualität", 4500);
+    return;
+  }
+  if (player.kind === "tw" && player.qualities) {
+    const qs = player.qualities(), cur = player.quality();
+    if (!qs.length) { toast("Twitch liefert gerade keine Qualitätsstufen."); return; }
+    menu.innerHTML = `<div class="label-sm muted" style="padding:4px 8px">Qualität (nur bei dir)</div>` +
+      qs.map(q => `<button type="button" data-q="${esc(q.group)}" aria-pressed="${q.group === cur}">${esc(q.name)}${q.group === cur ? " ✓" : ""}</button>`).join("");
+    menu.hidden = false;
+    return;
+  }
+  toast("Bei TikTok und Instagram wählt der Player die Qualität automatisch.");
+}
+$("#qualBtn").onclick = e => { e.stopPropagation(); openQuality(); };
+$("#qualMenu").addEventListener("click", e => {
+  const b = e.target.closest("button[data-q]"); if (!b || !player || !player.setQuality) return;
+  player.setQuality(b.dataset.q); $("#qualMenu").hidden = true; toast("Qualität: " + b.textContent.replace(" ✓", ""));
+});
+document.addEventListener("click", e => { if (!e.target.closest("#qualMenu")) $("#qualMenu").hidden = true; });
 
 // ---------------------------------------------------------------- Room lifecycle
 function genCode() {
