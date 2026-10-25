@@ -544,15 +544,28 @@ async function syncPlayer(force) {
   if (force) enforce(true);
 }
 
+// YouTube-Werbung erkennen: Status "nicht gestartet" (-1), aber die Zeit läuft weiter
+function detectAd() {
+  if (!player || player.kind !== "yt" || !player.ready || !player.p.getPlayerState) return false;
+  const st = player.p.getPlayerState(), t = player.time();
+  const advancing = player._lt != null && Math.abs(t - player._lt) > 0.3;
+  player._lt = t;
+  if (st === 1 || st === 2 || st === 0) player.inAd = false;
+  else if (st === -1 && advancing) player.inAd = true;
+  return !!player.inAd;
+}
 function enforce(fromOp) {
   if (!player || !player.ready || player.manual || !state.video || loadedKey !== vkey(state.video)) return;
+  if (!fromOp && detectAd()) return;   // während Werbung nichts erzwingen – danach wird aufgeholt
+  if (player.inAd) return;
   const want = state.pb.playing;
   if (want && !player.isPlaying() && !player.isBuffering() && !gestureNeeded) { player.play(); lastPlayCmd = now(); setTimeout(checkBlocked, 2000); }
   if (!want && player.isPlaying()) player.pause();
   if (player.setRate && Math.abs(player.rate() - RATE()) > 0.01) player.setRate(RATE());
   if (player.live) return;
   const diff = player.time() - expectedPos();
-  const leaderSelf = isLeader() && people.length > 1 && !fromOp;
+  // Die Referenz gleicht nur kleine Abweichungen per Tick aus; große (z. B. nach Werbung) holt auch sie auf
+  const leaderSelf = isLeader() && people.length > 1 && !fromOp && Math.abs(diff) < 4;
   if (Math.abs(diff) > (fromOp ? 0.6 : DRIFT_MAX) && !leaderSelf && (fromOp || now() - lastCorrection > 2500)) {
     player.seek(expectedPos());
     lastCorrection = now();
@@ -560,7 +573,8 @@ function enforce(fromOp) {
 }
 
 function checkBlocked() {
-  if (!player || !player.ready || player.manual || !state.pb.playing) return;
+  if (!player || !player.ready || player.manual || player.inAd || !state.pb.playing) return;
+  detectAd(); if (player.inAd) return;
   if (!player.isPlaying() && !player.isBuffering()) { gestureNeeded = true; $("#gesture").hidden = false; }
 }
 
@@ -612,7 +626,8 @@ setInterval(() => {
 setInterval(() => {
   if (!room || !synced || !transport || !isLeader() || people.length < 2) return;
   if (!state.video || !player || !player.ready || player.manual || loadedKey !== vkey(state.video)) return;
-  if (player.isBuffering()) return;
+  if (player.isBuffering() || player.inAd) return;
+  if (!player.live && Math.abs(player.time() - expectedPos()) > 3) return; // eigener Player hängt hinterher → nicht als Referenz senden
   const pos = player.live ? 0 : player.time();
   setPb(state.pb.playing, pos);
   transport.send("tick", { v: vkey(state.video), pos, playing: state.pb.playing, rate: RATE() });
@@ -762,6 +777,7 @@ function updateDrift() {
   const b = $("#driftBadge"), info = $("#syncInfo"), badge = $("#syncBadge");
   if (!state.video || !player || !player.ready) { b.hidden = true; info.textContent = state.video ? "Player lädt …" : "Warte auf Video …"; return; }
   b.hidden = false;
+  if (player.inAd) { $("#driftTxt").textContent = "WERBUNG"; info.textContent = "YouTube zeigt dir gerade Werbung. Danach springst du automatisch zu den anderen."; badge.textContent = "WERBUNG"; badge.className = "pill badge-warn"; return; }
   if (player.manual) { $("#driftTxt").textContent = "COUNTDOWN"; info.textContent = "Instagram erlaubt keine Fernsteuerung. Drückt Play gemeinsam nach dem Countdown."; badge.textContent = "MANUELL"; badge.className = "pill badge-sync"; return; }
   if (player.live) { $("#driftTxt").textContent = "LIVE"; info.textContent = "Livestream: Play und Pause werden geteilt. Spulen ist bei Live nicht möglich."; badge.textContent = "SYNCHRON"; badge.className = "pill badge-sync"; return; }
   const d = Math.abs(player.time() - expectedPos());
