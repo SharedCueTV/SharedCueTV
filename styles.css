@@ -5,7 +5,7 @@
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 500; src: url(fonts/space-grotesk-latin-500-normal.woff2) format("woff2"); }
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 600; src: url(fonts/space-grotesk-latin-600-normal.woff2) format("woff2"); }
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 700; src: url(fonts/space-grotesk-latin-700-normal.woff2) format("woff2"); }
-@font-face { font-family: "Material Symbols Outlined"; font-style: normal; font-display: block; font-weight: 100 700; src: url(fonts/material-symbols-subset.woff2?v=6) format("woff2"); }
+@font-face { font-family: "Material Symbols Outlined"; font-style: normal; font-display: block; font-weight: 100 700; src: url(fonts/material-symbols-subset.woff2?v=7) format("woff2"); }
 :root {
   --bg: #0b0f19;
   --surface: #0f131d;
@@ -427,10 +427,10 @@ input[type=range]:disabled { cursor: default; opacity: .5; }
 @keyframes cdPop { from { transform: scale(1.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
 /* ---------- Qualität ---------- */
-/* Loch im Klick-Schutz unten rechts: dort liegt YouTubes Zahnrad (Qualität) */
-.click-shield.yt-hole { clip-path: polygon(0 0, 100% 0, 100% calc(100% - 54px), calc(100% - 150px) calc(100% - 54px), calc(100% - 150px) 100%, 0 100%); }
+/* Loch im Klick-Schutz oben rechts: dort liegen YouTubes Zahnrad (Qualität), Untertitel und Ton */
+.click-shield.yt-hole { clip-path: polygon(0 0, calc(100% - 140px) 0, calc(100% - 140px) 60px, 100% 60px, 100% 100%, 0 100%); }
 .stage.show-gear .screen::after {
-  content: ""; position: absolute; right: 6px; bottom: 6px; width: 138px; height: 42px; z-index: 27; pointer-events: none;
+  content: ""; position: absolute; right: 6px; top: 6px; width: 128px; height: 48px; z-index: 27; pointer-events: none;
   border: 2px solid var(--primary); border-radius: 10px; box-shadow: 0 0 18px rgba(6,182,212,.7); animation: gearPulse 1s ease-in-out infinite alternate;
 }
 @keyframes gearPulse { from { opacity: .35; } to { opacity: 1; } }

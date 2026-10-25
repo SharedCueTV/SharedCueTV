@@ -750,7 +750,7 @@ function openQuality() {
   if (player.kind === "yt") {
     const st = $(".stage"); st.classList.add("show-gear");
     setTimeout(() => st.classList.remove("show-gear"), 4000);
-    toast("Qualität: unten rechts im Video aufs Zahnrad klicken → Qualität", 4500);
+    toast("Qualität: oben rechts im Video aufs Zahnrad klicken → Qualität", 4500);
     return;
   }
   if (player.kind === "tw" && player.qualities) {
