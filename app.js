@@ -409,7 +409,7 @@ function enforce(fromOp) {
   if (player.live) return;
   const diff = player.time() - expectedPos();
   const leaderSelf = isLeader() && people.length > 1 && !fromOp;
-  if (Math.abs(diff) > (fromOp ? 0.6 : DRIFT_MAX) && !leaderSelf && now() - lastCorrection > 2500) {
+  if (Math.abs(diff) > (fromOp ? 0.6 : DRIFT_MAX) && !leaderSelf && (fromOp || now() - lastCorrection > 2500)) {
     player.seek(expectedPos());
     lastCorrection = now();
   }
@@ -427,9 +427,16 @@ function playNext(prevKey) {
 }
 
 // Steuerung durch den Nutzer
+// Aktuelle Position: echte Player-Zeit, außer sie hinkt dem Raumzustand hinterher (z. B. direkt nach dem Spulen)
+function curPos() {
+  const exp = expectedPos();
+  if (!player || !player.ready || player.live) return exp;
+  const t = player.time();
+  return Math.abs(t - exp) < 2 ? t : exp;
+}
 function userToggle() {
   if (!state.video) return;
-  const pos = player && player.ready ? player.time() : expectedPos();
+  const pos = curPos();
   if (gestureNeeded) { resumeGesture(); if (state.pb.playing) return; }
   send({ k: state.pb.playing ? "pause" : "play", pos });
 }
@@ -760,8 +767,8 @@ $("#playBtn").onclick = userToggle;
 let shieldT;
 $("#shield").addEventListener("click", () => { clearTimeout(shieldT); shieldT = setTimeout(userToggle, 220); });
 $("#shield").addEventListener("dblclick", () => { clearTimeout(shieldT); toggleFs(); });
-$("#back10").onclick = () => userSeek((player ? player.time() : expectedPos()) - 10);
-$("#fwd10").onclick = () => userSeek((player ? player.time() : expectedPos()) + 10);
+$("#back10").onclick = () => userSeek(curPos() - 10);
+$("#fwd10").onclick = () => userSeek(curPos() + 10);
 $("#skipBtn").onclick = () => { if (!state.queue.length) { toast("Die Warteschlange ist leer."); return; } const n = sortedQueue()[0]; send({ k: "load", video: n, pos: n.start || 0, playing: true }); };
 $("#resyncBtn").onclick = () => {
   if (!player || !player.ready) return;
