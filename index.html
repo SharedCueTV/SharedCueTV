@@ -7,8 +7,8 @@
 <meta name="description" content="Videos und Streams mit Freunden synchron schauen.">
 <meta name="theme-color" content="#0b0f19">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
-<link rel="preload" href="fonts/material-symbols-subset.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=3">
+<link rel="preload" href="fonts/material-symbols-subset.woff2?v=4" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
 <div class="glow-bg" aria-hidden="true"></div>
@@ -19,7 +19,7 @@
     <div class="brand"><img src="icon.svg" alt=""><span class="brand-name">Shared<span>Cue</span></span></div>
     <div>
       <h1 id="lobbyTitle">Gemeinsam schauen.</h1>
-      <p class="lead">YouTube und Twitch mit Freunden – synchron, mit Chat und Warteschlange.</p>
+      <p class="lead">YouTube, Twitch, TikTok und Reels mit Freunden – synchron, mit Chat und Warteschlange.</p>
     </div>
     <div class="tabs" role="tablist" aria-label="Raum erstellen oder beitreten">
       <button class="tab" role="tab" id="tabCreate" aria-selected="true" aria-controls="formCreate">Raum erstellen</button>
@@ -76,7 +76,7 @@
     <form class="add-bar" id="topAdd" autocomplete="off">
       <span class="ms">search</span>
       <label class="sr" for="topAddInput" hidden>Video-Link</label>
-      <input id="topAddInput" class="input" placeholder="YouTube- oder Twitch-Link einfügen …" aria-label="YouTube- oder Twitch-Link">
+      <input id="topAddInput" class="input" placeholder="YouTube-, Twitch-, TikTok- oder Reel-Link …" aria-label="Video-Link">
       <button class="btn btn-ghost" type="submit"><span class="ms" style="position:static;font-size:16px;color:var(--primary)">playlist_add</span>Queue</button>
     </form>
     <div class="spacer"></div>
@@ -130,12 +130,13 @@
             <span class="sbadge sync" id="driftBadge" hidden><span class="ms">sync</span><span id="driftTxt">SYNC</span></span>
           </div>
           <div class="reactions-layer" id="reactLayer"></div>
+          <div class="countdown" id="countdown" hidden aria-live="assertive"></div>
           <div class="center-flash" id="centerFlash"><span class="ms fill" id="centerIcon">pause</span></div>
           <div class="toast-actor" id="actorToast"></div>
           <div class="empty-stage" id="emptyStage">
             <img src="icon.svg" alt="">
             <h3>Noch läuft nichts</h3>
-            <p>Füge rechts einen YouTube- oder Twitch-Link hinzu. Das erste Video startet automatisch für alle.</p>
+            <p>Füge rechts einen YouTube-, Twitch-, TikTok- oder Reel-Link hinzu. Das erste Video startet automatisch für alle.</p>
           </div>
           <div class="gesture" id="gesture" hidden>
             <button class="btn btn-primary" id="gestureBtn" type="button" style="min-height:52px;padding:0 24px"><span class="ms fill">play_arrow</span>Mitschauen</button>
@@ -162,6 +163,8 @@
 
       <div class="react-bar" role="group" aria-label="Reaktionen" id="reactBar"></div>
 
+      <div class="notice" id="igHint" hidden><span class="ms">timer</span><span>Instagram lässt sich nicht fernsteuern. Drück den Countdown-Knopf (unten links), dann startet jeder bei „LOS!“ das Reel selbst.</span></div>
+
       <section class="panel now-card" id="nowCard" hidden>
         <div class="chips" id="nowChips"></div>
         <h3 id="nowTitle"></h3>
@@ -179,13 +182,14 @@
       <section class="panel rpanel" id="paneQueue" role="tabpanel" aria-labelledby="rtQueue">
         <span class="label-sm muted">Video oder Stream einreichen</span>
         <form class="add-row" id="qAdd" autocomplete="off">
-          <input class="input" id="qAddInput" placeholder="YouTube- oder Twitch-Link" aria-label="YouTube- oder Twitch-Link">
+          <input class="input" id="qAddInput" placeholder="YouTube, Twitch, TikTok oder Reel" aria-label="Video-Link">
           <button class="btn btn-primary" type="submit" style="min-height:42px"><span class="ms">add</span>Hinzufügen</button>
         </form>
         <div class="filters" role="group" aria-label="Filter">
           <button class="fchip" data-f="all" aria-pressed="true">Alle</button>
           <button class="fchip" data-f="yt" aria-pressed="false">YouTube</button>
           <button class="fchip" data-f="tw" aria-pressed="false">Twitch</button>
+          <button class="fchip" data-f="clips" aria-pressed="false">TikTok &amp; Reels</button>
         </div>
         <div class="notice" id="qNotice" hidden><span class="ms">celebration</span><span id="qNoticeTxt"></span></div>
         <div class="scroll" id="qList"></div>
@@ -221,7 +225,7 @@
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
-<script src="config.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="config.js?v=4"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

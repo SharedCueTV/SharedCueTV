@@ -78,10 +78,43 @@ function parseMedia(raw) {
     const reserved = ["directory", "videos", "settings", "search", "downloads", "p", "jobs", "turbo"];
     if (cm && !reserved.includes(cm[1].toLowerCase())) return { src: "twl", ref: cm[1].toLowerCase(), start: 0 };
   }
+  if (host === "tiktok.com" || host.endsWith(".tiktok.com")) {
+    const m = u.pathname.match(/\/(?:video|v2|v1|photo)\/(\d{8,})/) || u.pathname.match(/^\/(?:player\/v1|embed\/v2|embed)\/(\d{8,})/);
+    if (m) return { src: "tt", ref: m[1], url: s };
+    if (/^(vm|vt)\./.test(host) || /^\/t\//.test(u.pathname)) return { src: "tt", ref: "", url: s };
+    return null;
+  }
+  if (host === "instagram.com" || host.endsWith(".instagram.com")) {
+    const m = u.pathname.match(/^\/(?:[\w.]+\/)?(reels?|p|tv)\/([\w-]{5,})/);
+    if (m) return { src: "ig", ref: m[2], kind: m[1] === "p" ? "p" : "reel", url: s };
+  }
   return null;
+}
+async function fetchJSON(url, ms = 3500) {
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), ms);
+  try { const r = await fetch(url, { signal: ctl.signal }); return r.ok ? await r.json() : null; }
+  catch { return null; } finally { clearTimeout(t); }
 }
 async function buildItem(media) {
   const item = { qid: uid(8), src: media.src, ref: media.ref, start: media.start || 0, by: me.id, byName: me.name, votes: {}, at: now(), title: "", thumb: "" };
+  if (media.src === "tt") {
+    // oEmbed liefert Titel, Vorschaubild und löst Kurzlinks (vm.tiktok.com) auf
+    const j = await fetchJSON("https://www.tiktok.com/oembed?url=" + encodeURIComponent(media.url))
+           || await fetchJSON("https://noembed.com/embed?url=" + encodeURIComponent(media.url));
+    if (j) {
+      if (!item.ref && j.embed_product_id) item.ref = String(j.embed_product_id);
+      if (!item.ref && j.html) { const m = String(j.html).match(/data-video-id="(\d+)"/); if (m) item.ref = m[1]; }
+      item.title = j.title || ""; item.author = j.author_name || ""; item.thumb = j.thumbnail_url || "";
+    }
+    if (!item.ref) return null;
+    item.title = item.title || "TikTok-Video";
+    return item;
+  }
+  if (media.src === "ig") {
+    item.kind = media.kind;
+    item.title = media.kind === "p" ? "Instagram-Beitrag" : "Instagram Reel";
+    return item;
+  }
   if (media.src === "yt") {
     item.thumb = `https://i.ytimg.com/vi/${media.ref}/mqdefault.jpg`;
     item.title = "YouTube-Video";
@@ -100,8 +133,11 @@ async function buildItem(media) {
   }
   return item;
 }
-const srcLabel = s => s === "yt" ? "YouTube" : s === "twl" ? "Twitch Live" : "Twitch";
+const srcLabel = s => ({ yt: "YouTube", twl: "Twitch Live", twv: "Twitch", tt: "TikTok", ig: "Instagram" })[s] || "Video";
 const isTw = s => s === "twv" || s === "twl";
+const family = s => isTw(s) ? "tw" : (s === "tt" || s === "ig") ? "clips" : "yt";
+const SRC_ICON = { yt: "play_arrow", twv: "bolt", twl: "bolt", tt: "music_note", ig: "photo_camera" };
+const SRC_CLASS = { yt: "yt", twv: "tw", twl: "tw", tt: "tt", ig: "ig" };
 
 // ---------------------------------------------------------------- Transports
 class LocalTransport {
@@ -191,6 +227,7 @@ class YTAdapter {
   async load(ref, pos, playing) {
     await loadYT();
     this.ref = ref;
+    this.started = false;
     if (this.p && this.ready) {
       if (playing) this.p.loadVideoById({ videoId: ref, startSeconds: pos });
       else this.p.cueVideoById({ videoId: ref, startSeconds: pos });
@@ -205,7 +242,7 @@ class YTAdapter {
         playerVars: { autoplay: playing ? 1 : 0, controls: 0, disablekb: 1, modestbranding: 1, rel: 0, playsinline: 1, iv_load_policy: 3, fs: 0, start: Math.floor(pos), origin: location.origin && location.origin !== "null" ? location.origin : undefined },
         events: {
           onReady: () => { this.ready = true; this.cb.volume(this); if (pos) this.p.seekTo(pos, true); if (playing) this.p.playVideo(); resolve(); },
-          onStateChange: e => { if (e.data === 0) this.cb.ended(); },
+          onStateChange: e => { if (e.data === 1) this.started = true; if (e.data === 0) this.cb.ended(); },
           onError: e => this.cb.error(e.data === 101 || e.data === 150 ? "Dieses Video erlaubt kein Einbetten." : e.data === 100 ? "Video nicht gefunden oder privat." : "YouTube-Fehler " + e.data)
         }
       });
@@ -240,6 +277,7 @@ class TwitchAdapter {
     await new Promise(resolve => {
       this.p.addEventListener(Twitch.Player.READY, () => { this.ready = true; this.cb.volume(this); resolve(); });
       this.p.addEventListener(Twitch.Player.ENDED, () => this.cb.ended());
+      this.p.addEventListener(Twitch.Player.PLAYING, () => { this.started = true; });
       this.p.addEventListener(Twitch.Player.OFFLINE, () => this.live && this.cb.error("Der Kanal ist gerade offline."));
       setTimeout(resolve, 8000);
     });
@@ -252,8 +290,72 @@ class TwitchAdapter {
   isPlaying() { return this.ready && !this.p.isPaused(); }
   isBuffering() { return false; }
   setVolume(v, muted) { if (!this.ready) return; this.p.setVolume(v / 100); this.p.setMuted(!!muted); }
-  destroyInner() { this.host.innerHTML = ""; this.p = null; this.ready = false; }
+  destroyInner() { this.host.innerHTML = ""; this.p = null; this.ready = false; this.started = false; }
   destroy() { this.destroyInner(); }
+}
+
+// TikTok: offizieller Embed-Player mit postMessage-API (play, pause, seekTo, mute)
+class TikTokAdapter {
+  constructor(host, cb) {
+    this.host = host; this.cb = cb; this.kind = "tt"; this.live = false;
+    this.t = 0; this.tAt = now(); this.dur = 0; this.st = -1;
+    this.onMsg = e => {
+      if (!this.ifr || e.source !== this.ifr.contentWindow) return;
+      let m = e.data; if (typeof m === "string") { try { m = JSON.parse(m); } catch { return; } }
+      if (!m || !m.type) return;
+      if (m.type === "onPlayerReady") { this.ready = true; this.cb.volume(this); this.readyFn && this.readyFn(); }
+      else if (m.type === "onStateChange") {
+        this.st = m.value; this.tAt = now();
+        if (m.value === 1) this.started = true;
+        if (m.value === 0) this.cb.ended();
+      }
+      else if (m.type === "onCurrentTime" && m.value) { this.t = +m.value.currentTime || 0; this.dur = +m.value.duration || this.dur; this.tAt = now(); }
+      else if (m.type === "onPlayerError") this.cb.error("TikTok-Video kann nicht abgespielt werden.");
+    };
+    window.addEventListener("message", this.onMsg);
+  }
+  post(type, value) { this.ifr && this.ifr.contentWindow && this.ifr.contentWindow.postMessage(value === undefined ? { type, "x-tiktok-player": true } : { type, value, "x-tiktok-player": true }, "*"); }
+  async load(item, pos, playing) {
+    this.host.innerHTML = ""; this.ready = false; this.started = false; this.t = pos || 0; this.dur = 0; this.st = -1;
+    const ifr = this.ifr = document.createElement("iframe");
+    ifr.src = `https://www.tiktok.com/player/v1/${encodeURIComponent(item.ref)}?controls=0&autoplay=${playing ? 1 : 0}&loop=0&rel=0&music_info=1&description=1&closed_caption=0&native_context_menu=0`;
+    ifr.allow = "autoplay; fullscreen; encrypted-media; picture-in-picture";
+    ifr.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0;background:#000";
+    this.host.appendChild(ifr);
+    await new Promise(resolve => { this.readyFn = resolve; setTimeout(resolve, 8000); });
+    if (!this.ready) return;
+    if (pos > 0.5) this.seek(pos);
+    if (playing) this.play();
+  }
+  play() { this.post("play"); }
+  pause() { this.post("pause"); }
+  seek(t) { this.post("seekTo", Math.max(0, t)); this.t = t; this.tAt = now(); }
+  time() { return this.st === 1 ? this.t + (now() - this.tAt) / 1000 : this.t; }
+  duration() { return this.dur; }
+  isPlaying() { return this.st === 1; }
+  isBuffering() { return this.st === 3; }
+  setVolume(v, muted) { this.post(muted || v === 0 ? "mute" : "unMute"); }
+  destroy() { window.removeEventListener("message", this.onMsg); this.host.innerHTML = ""; this.ifr = null; this.ready = false; }
+}
+
+// Instagram bietet keine steuerbare Player-API: Alle sehen dasselbe Reel, Start per gemeinsamem Countdown
+class InstaAdapter {
+  constructor(host, cb) { this.host = host; this.cb = cb; this.kind = "ig"; this.manual = true; this.live = false; }
+  async load(item) {
+    this.host.innerHTML = "";
+    const ifr = document.createElement("iframe");
+    ifr.src = `https://www.instagram.com/${item.kind === "p" ? "p" : "reel"}/${encodeURIComponent(item.ref)}/embed/`;
+    ifr.allow = "autoplay; fullscreen; encrypted-media; picture-in-picture";
+    ifr.setAttribute("scrolling", "no");
+    ifr.style.cssText = "position:absolute;top:0;bottom:0;left:50%;transform:translateX(-50%);height:100%;aspect-ratio:9/16;max-width:100%;border:0;background:#fff";
+    this.host.appendChild(ifr);
+    this.ready = true;
+  }
+  play() {} pause() {} seek() {}
+  time() { return 0; } duration() { return 0; }
+  isPlaying() { return false; } isBuffering() { return false; }
+  setVolume() {}
+  destroy() { this.host.innerHTML = ""; this.ready = false; }
 }
 
 // ---------------------------------------------------------------- State
@@ -327,6 +429,7 @@ function applyOp(op, local) {
       if (!local && !chatActive) $("#unread").hidden = false;
       break;
     case "react": spawnEmoji(op.emoji, local ? "" : op.name); return;
+    case "countdown": runCountdown(local ? "Du" : op.name); return;
     case "title": state.title = op.title; break;
   }
   renderAll();
@@ -385,9 +488,12 @@ async function syncPlayer(force) {
   const key = vkey(v);
   if (key !== loadedKey) {
     loadedKey = key;
-    const want = isTw(v.src) ? "tw" : "yt";
+    const want = isTw(v.src) ? "tw" : v.src === "tt" ? "tt" : v.src === "ig" ? "ig" : "yt";
     if (player && player.kind !== want) { player.destroy(); player = null; }
-    if (!player) player = want === "yt" ? new YTAdapter(host(), playerCb) : new TwitchAdapter(host(), playerCb);
+    if (!player) {
+      const A = { yt: YTAdapter, tw: TwitchAdapter, tt: TikTokAdapter, ig: InstaAdapter }[want];
+      player = new A(host(), playerCb);
+    }
     renderSource();
     try {
       await player.load(want === "yt" ? v.ref : v, expectedPos(), state.pb.playing);
@@ -402,7 +508,7 @@ async function syncPlayer(force) {
 }
 
 function enforce(fromOp) {
-  if (!player || !player.ready || !state.video || loadedKey !== vkey(state.video)) return;
+  if (!player || !player.ready || player.manual || !state.video || loadedKey !== vkey(state.video)) return;
   const want = state.pb.playing;
   if (want && !player.isPlaying() && !player.isBuffering() && !gestureNeeded) { player.play(); lastPlayCmd = now(); setTimeout(checkBlocked, 2000); }
   if (!want && player.isPlaying()) player.pause();
@@ -416,7 +522,7 @@ function enforce(fromOp) {
 }
 
 function checkBlocked() {
-  if (!player || !player.ready || !state.pb.playing) return;
+  if (!player || !player.ready || player.manual || !state.pb.playing) return;
   if (!player.isPlaying() && !player.isBuffering()) { gestureNeeded = true; $("#gesture").hidden = false; }
 }
 
@@ -430,25 +536,32 @@ function playNext(prevKey) {
 // Aktuelle Position: echte Player-Zeit, außer sie hinkt dem Raumzustand hinterher (z. B. direkt nach dem Spulen)
 function curPos() {
   const exp = expectedPos();
-  if (!player || !player.ready || player.live) return exp;
+  if (!player || !player.ready || player.live || player.manual) return exp;
   const t = player.time();
   return Math.abs(t - exp) < 2 ? t : exp;
 }
+let lastCountdown = 0;
 function userToggle() {
   if (!state.video) return;
+  if (player && player.manual) {
+    if (now() - lastCountdown < 5000) return;
+    lastCountdown = now();
+    send({ k: "countdown" });
+    return;
+  }
   const pos = curPos();
   if (gestureNeeded) { resumeGesture(); if (state.pb.playing) return; }
   send({ k: state.pb.playing ? "pause" : "play", pos });
 }
 function userSeek(t) {
-  if (!state.video || (player && player.live)) return;
+  if (!state.video || (player && (player.live || player.manual))) return;
   const d = player ? player.duration() : 0;
   t = clamp(t, 0, d ? d - 0.5 : t);
   send({ k: "seek", pos: t });
 }
 function resumeGesture() {
   gestureNeeded = false; $("#gesture").hidden = true;
-  if (player && player.ready) { if (player.kind === "yt") { player.p.unMute(); } player.seek(expectedPos()); player.play(); }
+  if (player && player.ready && !player.manual) { playerCb.volume(player); player.seek(expectedPos()); player.play(); }
 }
 
 // Leader-Tick + Drift-Schleife
@@ -459,7 +572,7 @@ setInterval(() => {
 }, 1000);
 setInterval(() => {
   if (!room || !synced || !transport || !isLeader() || people.length < 2) return;
-  if (!state.video || !player || !player.ready || loadedKey !== vkey(state.video)) return;
+  if (!state.video || !player || !player.ready || player.manual || loadedKey !== vkey(state.video)) return;
   if (player.isBuffering()) return;
   const pos = player.live ? 0 : player.time();
   state.pb = { playing: state.pb.playing, pos, at: now() };
@@ -497,10 +610,12 @@ function renderSource() {
   const v = state.video, b = $("#srcBadge");
   if (!v) { b.hidden = true; $("#driftBadge").hidden = true; $("#seek").disabled = true; return; }
   b.hidden = false;
-  b.className = "sbadge " + (isTw(v.src) ? "tw" : "yt");
-  b.innerHTML = `<span class="ms">${v.src === "twl" ? "bolt" : "smart_display"}</span>${esc(srcLabel(v.src))}${v.src === "twl" ? " · LIVE" : ""}`;
-  $("#seek").disabled = v.src === "twl";
-  $("#back10").disabled = $("#fwd10").disabled = v.src === "twl";
+  b.className = "sbadge " + SRC_CLASS[v.src];
+  b.innerHTML = `<span class="ms">${v.src === "yt" ? "smart_display" : SRC_ICON[v.src]}</span>${esc(srcLabel(v.src))}${v.src === "twl" ? " · LIVE" : ""}`;
+  const noSeek = v.src === "twl" || v.src === "ig";
+  $("#seek").disabled = noSeek;
+  $("#back10").disabled = $("#fwd10").disabled = noSeek;
+  $("#igHint").hidden = v.src !== "ig";
 }
 function renderNow() {
   const v = state.video;
@@ -515,16 +630,17 @@ function renderNow() {
 function renderQueue() {
   const all = sortedQueue();
   $("#qCount").textContent = all.length;
-  const list = all.filter(q => filter === "all" || (filter === "yt" ? q.src === "yt" : isTw(q.src)));
+  const list = all.filter(q => filter === "all" || family(q.src) === filter);
   if (!list.length) {
     $("#qList").innerHTML = `<div class="q-empty"><span class="ms">queue_music</span><div>${all.length ? "Nichts in diesem Filter." : "Die Warteschlange ist leer.<br>Füge oben einen Link hinzu."}</div></div>`;
     return;
   }
   $("#qList").innerHTML = list.map(q => {
     const mine = (q.votes || {})[me.id] || 0, sc = score(q);
-    const thumb = q.thumb ? `<img src="${esc(q.thumb)}" alt="" loading="lazy">` : `<div class="tw-fill"><span class="ms">${q.src === "twl" ? "live_tv" : "videocam"}</span></div>`;
+    const fillIcon = { twl: "live_tv", twv: "videocam", tt: "music_note", ig: "photo_camera" }[q.src] || "videocam";
+    const thumb = q.thumb ? `<img src="${esc(q.thumb)}" alt="" loading="lazy">` : `<div class="tw-fill ${SRC_CLASS[q.src]}"><span class="ms">${fillIcon}</span></div>`;
     return `<div class="q-item" data-qid="${esc(q.qid)}">
-      <div class="thumb">${thumb}<span class="src ${isTw(q.src) ? "tw" : "yt"}"><span class="ms">${isTw(q.src) ? "bolt" : "play_arrow"}</span></span></div>
+      <div class="thumb">${thumb}<span class="src ${SRC_CLASS[q.src]}"><span class="ms">${SRC_ICON[q.src]}</span></span></div>
       <div class="q-body">
         <div class="q-title">${esc(q.title)}</div>
         <div class="q-meta">${esc(srcLabel(q.src))} · von <b>${esc(q.byName || "?")}</b></div>
@@ -576,10 +692,26 @@ function spawnEmoji(emoji, name) {
   $("#reactLayer").appendChild(el);
   setTimeout(() => el.remove(), 2700);
 }
+let cdTimer = null;
+function runCountdown(who) {
+  const el = $("#countdown");
+  clearInterval(cdTimer);
+  let n = 3;
+  el.hidden = false;
+  el.innerHTML = `<div class="cd-num">${n}</div><div class="cd-txt">${esc(who)} startet den Countdown</div>`;
+  cdTimer = setInterval(() => {
+    n--;
+    if (n > 0) { el.querySelector(".cd-num").textContent = n; return; }
+    clearInterval(cdTimer);
+    el.innerHTML = `<div class="cd-num go">LOS!</div><div class="cd-txt">Jetzt auf Play drücken</div>`;
+    setTimeout(() => { el.hidden = true; }, 1800);
+  }, 1000);
+}
 function updateDrift() {
   const b = $("#driftBadge"), info = $("#syncInfo"), badge = $("#syncBadge");
   if (!state.video || !player || !player.ready) { b.hidden = true; info.textContent = state.video ? "Player lädt …" : "Warte auf Video …"; return; }
   b.hidden = false;
+  if (player.manual) { $("#driftTxt").textContent = "COUNTDOWN"; info.textContent = "Instagram erlaubt keine Fernsteuerung. Drückt Play gemeinsam nach dem Countdown."; badge.textContent = "MANUELL"; badge.className = "pill badge-sync"; return; }
   if (player.live) { $("#driftTxt").textContent = "LIVE"; info.textContent = "Livestream: Play und Pause werden geteilt. Spulen ist bei Live nicht möglich."; badge.textContent = "SYNCHRON"; badge.className = "pill badge-sync"; return; }
   const d = Math.abs(player.time() - expectedPos());
   const leaderSelf = isLeader() && people.length > 1;
@@ -594,9 +726,15 @@ function updateDrift() {
 setInterval(() => {
   if (!room) return;
   const playing = state.pb.playing;
-  $("#playIcon").textContent = playing ? "pause" : "play_arrow";
-  $("#playBtn").setAttribute("aria-label", playing ? "Pausieren" : "Abspielen");
+  const manual = !!(player && player.manual);
+  $("#playIcon").textContent = manual ? "timer" : playing ? "pause" : "play_arrow";
+  $("#playBtn").setAttribute("aria-label", manual ? "Countdown für alle starten" : playing ? "Pausieren" : "Abspielen");
+  // Klick-Schutz erst aktiv, wenn der Player einmal lief: so bleiben Altersabfragen
+  // ("Start Watching" bei Twitch) und Einwilligungen im Player anklickbar
+  const shieldOn = !!(player && player.ready && player.started && !manual);
+  $("#shield").style.pointerEvents = shieldOn ? "auto" : "none";
   if (!player || !player.ready || !state.video) { $("#timeTxt").textContent = "0:00 / 0:00"; setRange($("#seek"), 0); return; }
+  if (manual) { $("#timeTxt").textContent = "Instagram · per Countdown"; setRange($("#seek"), 0); return; }
   if (player.live) { $("#timeTxt").textContent = "● LIVE"; setRange($("#seek"), 1000); return; }
   const d = player.duration(), t = player.time();
   if (!seeking) { setRange($("#seek"), d ? (t / d) * 1000 : 0); $("#timeTxt").textContent = `${fmt(t)} / ${fmt(d)}`; }
@@ -690,11 +828,13 @@ window.addEventListener("pagehide", () => { transport && transport.leave(); });
 // ---------------------------------------------------------------- Actions
 async function addLink(raw, inputEl) {
   const media = parseMedia(raw);
-  if (!media) { toast("Das ist kein YouTube- oder Twitch-Link."); return; }
+  if (!media) { toast("Unterstützt: YouTube, Twitch, TikTok und Instagram-Reels.", 3500); return; }
   if (media.src === "clip") { toast("Twitch-Clips lassen sich nicht synchron steuern. Nimm das ganze Video (twitch.tv/videos/…)."); return; }
-  if (inputEl) { inputEl.value = ""; inputEl.disabled = true; }
+  if (inputEl) { inputEl.disabled = true; }
   const item = await buildItem(media);
   if (inputEl) { inputEl.disabled = false; inputEl.focus(); }
+  if (!item) { toast("TikTok-Kurzlink nicht lesbar. Öffne ihn einmal und kopiere die volle Adresse (tiktok.com/@…/video/…).", 5000); return; }
+  if (inputEl) inputEl.value = "";
   if (!state.video) send({ k: "load", video: item, pos: item.start || 0, playing: true });
   else { send({ k: "qadd", item }); toast("Zur Warteschlange hinzugefügt"); }
 }
