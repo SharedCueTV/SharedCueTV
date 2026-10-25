@@ -7,8 +7,19 @@
 <meta name="description" content="Videos und Streams mit Freunden synchron schauen.">
 <meta name="theme-color" content="#0b0f19">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
-<link rel="preload" href="fonts/material-symbols-subset.woff2?v=13" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=13">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="SharedCueTV">
+<meta property="og:title" content="SharedCueTV – Gemeinsam schauen">
+<meta property="og:description" content="Komm in meinen Raum! YouTube, Twitch, TikTok und Reels synchron schauen – mit Chat, Sprachchat und Warteschlange.">
+<meta property="og:image" content="https://sharedcuetv.github.io/SharedCueTV/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="https://sharedcuetv.github.io/SharedCueTV/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://sharedcuetv.github.io/SharedCueTV/og-image.jpg">
+<link rel="preload" href="fonts/material-symbols-subset.woff2?v=14" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css?v=14">
 </head>
 <body>
 <div class="glow-bg" aria-hidden="true"></div>
@@ -39,6 +50,11 @@
         <label for="cPass">Passwort (optional)</label>
         <input id="cPass" class="input" type="password" maxlength="64" placeholder="Leer lassen für keinen Schutz">
       </div>
+      <fieldset class="opts">
+        <legend>Im Raum erlauben</legend>
+        <label class="switch"><input type="checkbox" id="cVoice" checked> Sprachchat</label>
+        <label class="switch"><input type="checkbox" id="cCam" checked> Webcams (im Sprachchat)</label>
+      </fieldset>
       <button class="btn btn-primary" type="submit"><span class="ms">add_circle</span>Raum erstellen</button>
     </form>
 
@@ -57,6 +73,8 @@
       </div>
       <button class="btn btn-primary" type="submit"><span class="ms">login</span>Beitreten</button>
     </form>
+
+    <button class="ext-link" type="button" id="extBtn"><span class="ms">smart_display</span><span><b>Netflix, Disney+ oder Prime?</b><br><span class="muted">Mit der Chrome-Erweiterung (Beta) synchron schauen</span></span></button>
 
     <div id="modeNote" class="mode-note" hidden>
       <span class="ms" style="font-size:18px">science</span>
@@ -180,9 +198,13 @@
         </div>
       </section>
 
+      <div class="cam-strip" id="camStrip" hidden aria-label="Webcams"></div>
+
       <div class="react-bar" role="group" aria-label="Reaktionen" id="reactBar"></div>
 
       <div class="notice" id="igHint" hidden><span class="ms">timer</span><span>Instagram lässt sich nicht fernsteuern. Drück den Countdown-Knopf (unten links), dann startet jeder bei „LOS!“ das Reel selbst.</span></div>
+
+      <section class="panel poll-card" id="pollCard" hidden aria-live="polite"></section>
 
       <section class="panel now-card" id="nowCard" hidden>
         <div class="chips" id="nowChips"></div>
@@ -196,6 +218,7 @@
       <div class="rtabs" role="tablist">
         <button class="rtab" role="tab" id="rtQueue" aria-selected="true" aria-controls="paneQueue"><span class="ms">playlist_play</span>Warteschlange <span class="count" id="qCount">0</span></button>
         <button class="rtab" role="tab" id="rtChat" aria-selected="false" aria-controls="paneChat"><span class="ms">forum</span>Chat <span class="unread" id="unread" hidden></span></button>
+        <button class="rtab" role="tab" id="rtStats" aria-selected="false" aria-controls="paneStats" aria-label="Statistik" title="Statistik"><span class="ms">leaderboard</span><span class="rt-txt">Stats</span></button>
       </div>
 
       <section class="panel rpanel" id="paneQueue" role="tabpanel" aria-labelledby="rtQueue">
@@ -210,6 +233,7 @@
           <button class="fchip" data-f="tw" aria-pressed="false">Twitch</button>
           <button class="fchip" data-f="clips" aria-pressed="false">TikTok &amp; Reels</button>
         </div>
+        <div class="poll-bar" id="pollBar"></div>
         <div class="notice" id="qNotice" hidden><span class="ms">celebration</span><span id="qNoticeTxt"></span></div>
         <div class="scroll" id="qList"></div>
       </section>
@@ -220,6 +244,10 @@
           <input class="input" id="chatInput" maxlength="500" placeholder="Nachricht … (z. B. „ab 2:31 wird’s gut“)" aria-label="Nachricht">
           <button class="icon-btn" type="submit" aria-label="Senden" style="width:44px;height:44px;background:var(--primary-c);color:var(--on-primary)"><span class="ms fill">send</span></button>
         </form>
+      </section>
+
+      <section class="panel rpanel" id="paneStats" role="tabpanel" aria-labelledby="rtStats" hidden>
+        <div class="scroll" id="statsBody"></div>
       </section>
     </aside>
   </div>
@@ -242,9 +270,26 @@
   </div>
 </div>
 
+<!-- Erweiterung -->
+<div class="modal-bg" id="extModal" hidden>
+  <div class="panel modal" role="dialog" aria-modal="true" aria-labelledby="extTitle">
+    <h3 id="extTitle">Netflix, Disney+ &amp; Prime</h3>
+    <p class="muted" style="margin:0">Die Streamingdienste lassen sich nicht in eine Webseite einbetten. Deshalb gibt es eine Chrome-Erweiterung: Jeder schaut mit seinem eigenen Abo, die Erweiterung gleicht Play, Pause und Spulen ab. Funktioniert in Chrome, Edge und Brave am PC.</p>
+    <ol class="steps">
+      <li><a class="btn btn-primary" href="sharedcuetv-extension.zip" download><span class="ms">open_in_new</span>Erweiterung herunterladen</a> und die ZIP-Datei entpacken.</li>
+      <li>In Chrome <code>chrome://extensions</code> öffnen und oben rechts den <b>Entwicklermodus</b> einschalten.</li>
+      <li><b>„Entpackte Erweiterung laden“</b> klicken und den entpackten Ordner auswählen.</li>
+      <li>Das SharedCueTV-Symbol in der Leiste anklicken, Namen eingeben, auf <b>Neu</b> klicken und den Code an deine Freunde schicken.</li>
+      <li>Alle öffnen denselben Film oder dieselbe Folge – los geht's.</li>
+    </ol>
+    <p class="muted" style="margin:0;font-size:12px">Beta: Die Räume der Erweiterung sind getrennt von den Räumen dieser Seite.</p>
+    <div class="row" style="justify-content:flex-end"><button class="btn btn-ghost" id="extClose" type="button">Schließen</button></div>
+  </div>
+</div>
+
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
-<script src="config.js?v=13"></script>
-<script src="app.js?v=13"></script>
+<script src="config.js?v=14"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>

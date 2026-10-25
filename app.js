@@ -401,8 +401,11 @@ let refreshWanted = false;  // frischen Stand anfordern (nach Verbindungsabbruch
 let offlineSince = 0, reconnectT = null, backoff = 0, hiddenAt = 0;
 const fmtRate = r => String(+r.toFixed(2)).replace(".", ",") + "×";
 
+function freshStats() { return { added: {}, upv: {}, react: {}, sec: 0, videos: 0 }; }
+const ST = () => (state.stats = state.stats || freshStats());
+const bump = (map, name, n = 1) => { if (!name) return; const m = ST()[map]; m[name] = Math.max(0, (m[name] || 0) + n); };
 function freshState() {
-  return { title: "", video: null, pb: { playing: false, pos: 0, at: now(), rate: 1 }, queue: [], chat: [] };
+  return { title: "", video: null, pb: { playing: false, pos: 0, at: now(), rate: 1 }, queue: [], chat: [], settings: { voice: true, cam: true }, poll: null, stats: freshStats() };
 }
 const RATE = () => state.pb.rate || 1;
 const expectedPos = () => state.pb.playing ? state.pb.pos + (now() - state.pb.at) / 1000 * RATE() : state.pb.pos;
@@ -426,6 +429,10 @@ function applyOp(op, local) {
   switch (op.k) {
     case "load": {
       if (op.prev && vkey(state.video) !== op.prev) return; // jemand war schneller
+      if (op.video) {
+        ST().videos++;
+        if (op.video.qid && !state.queue.some(q => q.qid === op.video.qid) && !op.prev && op.video.by === op.by) bump("added", op.video.byName);
+      }
       state.video = op.video;
       setPb(op.playing !== false, op.pos || 0, 1);
       state.adWait = []; state.adHeld = false;
@@ -439,12 +446,12 @@ function applyOp(op, local) {
     case "pause": setPb(false, op.pos); if (!local) actorToast(`${actor} hat pausiert`); flash("pause"); break;
     case "seek": setPb(state.pb.playing, op.pos); if (!local) actorToast(`${actor} spult zu ${fmt(op.pos)}`); break;
     case "qadd":
-      if (!state.queue.some(q => q.qid === op.item.qid)) state.queue.push(op.item);
+      if (!state.queue.some(q => q.qid === op.item.qid)) { state.queue.push(op.item); bump("added", op.item.byName); }
       if (!local) showNotice(`${actor} hat „${op.item.title}“ zur Warteschlange hinzugefügt`);
       break;
     case "qdel": state.queue = state.queue.filter(q => q.qid !== op.qid); break;
     case "qaddMany":
-      for (const it of op.items || []) if (!state.queue.some(q => q.qid === it.qid)) state.queue.push(it);
+      for (const it of op.items || []) if (!state.queue.some(q => q.qid === it.qid)) { state.queue.push(it); bump("added", it.byName); }
       if (!local) showNotice(`${actor} hat eine Playlist mit ${(op.items || []).length} Videos hinzugefügt`);
       break;
     case "rate":
@@ -458,7 +465,14 @@ function applyOp(op, local) {
     case "upnextCancel": hideUpNext(); if (!local) actorToast(`${actor} hat das nächste Video abgebrochen`); return;
     case "qvote": {
       const it = state.queue.find(q => q.qid === op.qid);
-      if (it) { it.votes = it.votes || {}; if (op.v) it.votes[op.by] = op.v; else delete it.votes[op.by]; resortByVotes(); }
+      if (it) {
+        it.votes = it.votes || {};
+        const before = it.votes[op.by] || 0;
+        if (op.v) it.votes[op.by] = op.v; else delete it.votes[op.by];
+        if (before !== 1 && op.v === 1) bump("upv", it.byName, 1);
+        if (before === 1 && op.v !== 1) bump("upv", it.byName, -1);
+        resortByVotes();
+      }
       break;
     }
     case "qmove": {
@@ -483,7 +497,24 @@ function applyOp(op, local) {
       if (state.chat.length > CHAT_MAX) state.chat.splice(0, state.chat.length - CHAT_MAX);
       if (!local && !chatActive) $("#unread").hidden = false;
       break;
-    case "react": spawnEmoji(op.emoji, local ? "" : op.name); return;
+    case "react": spawnEmoji(op.emoji, local ? "" : op.name); bump("react", op.name); if (statsActive) renderStats(); return;
+    case "poll":
+      state.poll = { pid: op.pid, options: op.options, votes: {}, by: op.by, name: op.name, endsAt: now() + (op.secs || 30) * 1000 };
+      if (!local) actorToast(`${actor} startet eine Abstimmung`);
+      renderPoll(); return;
+    case "pollVote":
+      if (!state.poll || state.poll.pid !== op.pid) return;
+      state.poll.votes[op.by] = op.idx | 0;
+      renderPoll(); return;
+    case "pollEnd": {
+      if (!state.poll || state.poll.pid !== op.pid) return;
+      const po = state.poll; state.poll = null; renderPoll();
+      if (op.cancel) { toast("Abstimmung abgebrochen"); return; }
+      const w = po.options[op.winner]; if (!w) return;
+      toast(`Gewonnen: ${w.title}`, 3500);
+      if (local) send({ k: "load", video: w, pos: w.start || 0, playing: true });
+      return;
+    }
     case "countdown": runCountdown(local ? "Du" : op.name); return;
     case "voice": voiceSignal(op, local); return;
     case "title": state.title = op.title; break;
@@ -500,6 +531,7 @@ function onMessage(t, d, from) {
     const l = [...others].sort((a, b) => (a.joinedAt - b.joinedAt) || (a.id < b.id ? -1 : 1))[0];
     if (synced && (!l || l.id === me.id)) {
       const snap = JSON.parse(JSON.stringify(state));
+      if (snap.poll) snap.poll.leftMs = Math.max(0, state.poll.endsAt - now());
       snap.pb = { playing: state.pb.playing, pos: player && loadedKey === vkey(state.video) && isLeader() && !player.manual && !player.live ? player.time() : expectedPos(), at: 0, rate: RATE() };
       transport.send("snap", { to: from, state: snap });
     }
@@ -512,6 +544,8 @@ function onMessage(t, d, from) {
     synced = true; refreshWanted = false;
     state = d.state;
     state.pb.at = now();
+    if (state.poll) state.poll.endsAt = now() + (state.poll.leftMs || 0);
+    mergeSavedStats();
     if (wasRefresh) actorToast("Wieder verbunden – Stand aktualisiert");
     if (!state.title) state.title = "Raum " + room.code;
     renderAll(); syncPlayer(true);
@@ -686,6 +720,10 @@ setInterval(() => {
   renderAdHold();
   // Sicherung: nach 90 s Werbung geht es ohne den Wartenden weiter
   if (state.adHeld && isLeader() && now() - adHeldSince > 90000) send({ k: "adClear" });
+  if (state.video && state.pb.playing && !state.adHeld) ST().sec++;
+  if (state.poll) { updatePollTimer(); if (now() >= state.poll.endsAt && isLeader()) endPoll(false); }
+  if (now() - lastStatsSave > 10000) saveStats();
+  if (statsActive && now() % 5000 < 1000) renderStats();
 }, 1000);
 setInterval(() => {
   if (!room || !synced || !transport || !isLeader() || people.length < 2) return;
@@ -699,7 +737,7 @@ setInterval(() => {
 
 // ---------------------------------------------------------------- Rendering
 function renderAll() {
-  renderHead(); renderPeople(); renderQueue(); renderChat(); renderNow(); renderSource(); renderAdHold();
+  renderHead(); renderPeople(); renderQueue(); renderChat(); renderNow(); renderSource(); renderAdHold(); renderPoll(); renderPollBar();
 }
 function avatarHTML(p, cls = "") {
   return `<span class="avatar ${cls}" data-uid="${esc(p.id)}" style="background:${esc(p.color || colorFor(p.id))}" title="${esc(p.name)}">${esc(initials(p.name))}</span>`;
@@ -708,7 +746,7 @@ function renderHead() {
   $("#roomTitle").textContent = state.title || "Raum";
   document.title = (state.title ? state.title + " · " : "") + "SharedCueTV";
   const n = people.length;
-  $("#roomSub").textContent = `${n} ${n === 1 ? "Person" : "Personen"} im Raum · Code ${room.code}` + (room.pw ? " · mit Passwort" : "");
+  $("#roomSub").textContent = `${n} ${n === 1 ? "Person" : "Personen"} im Raum · Code ${room.code}` + (room.pw ? " · mit Passwort" : "") + (!roomAllows("voice") ? " · ohne Sprachchat" : !roomAllows("cam") ? " · ohne Webcams" : "");
   $("#liveTxt").textContent = `${n} ${n === 1 ? "Person" : "Freunde"} synchron`;
   $("#codeLabel").textContent = room.code;
   const url = inviteUrl(true);
@@ -757,10 +795,12 @@ function renderQueue() {
   }
   $("#qList").innerHTML = list.map(q => {
     const mine = (q.votes || {})[me.id] || 0, sc = score(q);
+    const picked = pollSel && pollSel.has(q.qid);
     const fillIcon = { twl: "live_tv", twv: "videocam", tt: "music_note", ig: "photo_camera" }[q.src] || "videocam";
     const thumb = q.thumb ? `<img src="${esc(q.thumb)}" alt="" loading="lazy">` : `<div class="tw-fill ${SRC_CLASS[q.src]}"><span class="ms">${fillIcon}</span></div>`;
     return `<div class="q-item" data-qid="${esc(q.qid)}">
-      ${filter === "all" ? `<button class="drag" type="button" aria-label="Verschieben (ziehen)" title="Ziehen zum Verschieben"><span class="ms">drag_indicator</span></button>` : ""}
+      ${pollSel ? `<button class="pick ${picked ? "on" : ""}" type="button" data-act="pick" aria-pressed="${!!picked}" aria-label="Für Abstimmung auswählen"><span class="ms">${picked ? "check_box" : "check_box_outline_blank"}</span></button>`
+        : filter === "all" ? `<button class="drag" type="button" aria-label="Verschieben (ziehen)" title="Ziehen zum Verschieben"><span class="ms">drag_indicator</span></button>` : ""}
       <div class="thumb">${thumb}<span class="src ${SRC_CLASS[q.src]}"><span class="ms">${SRC_ICON[q.src]}</span></span></div>
       <div class="q-body">
         <div class="q-title">${esc(q.title)}</div>
@@ -970,9 +1010,10 @@ $("#qualMenu").addEventListener("click", e => {
 // ---------------------------------------------------------------- Sprachchat (WebRTC, Signalisierung über den Raum)
 const ICE = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun.cloudflare.com:3478" }];
 const voice = { on: false, muted: false, stream: null, peers: new Map(), members: new Map(), ctx: null, meters: new Map(), speaking: new Set() };
-function vsend(t, extra = {}) { send({ k: "voice", t, muted: voice.muted, ...extra }); }
+function vsend(t, extra = {}) { send({ k: "voice", t, muted: voice.muted, cam: !!voice.cam, ...extra }); }
 async function voiceJoin() {
   if (voice.on) return;
+  if (!roomAllows("voice")) { toast("Sprachchat ist in diesem Raum ausgeschaltet."); return; }
   if (!navigator.mediaDevices || !window.RTCPeerConnection) { toast("Dein Browser unterstützt keinen Sprachchat."); return; }
   try {
     voice.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
@@ -990,6 +1031,8 @@ function voiceLeave(silent) {
   if (!silent) vsend("leave");
   for (const id of [...voice.peers.keys()]) closePeer(id);
   voice.stream && voice.stream.getTracks().forEach(t => t.stop());
+  if (voice.cam) { voice.cam.stop(); voice.cam = null; }
+  removeCamTile(me.id);
   voice.stream = null; voice.on = false;
   voice.members.delete(me.id); dropMeter(me.id);
   renderPeople();
@@ -1006,42 +1049,56 @@ function getPeer(id) {
   let p = voice.peers.get(id);
   if (p) return p;
   const pc = new RTCPeerConnection({ iceServers: ICE });
-  p = { pc, cands: [], audio: null };
+  // "Perfect negotiation": die größere ID gibt bei gleichzeitigen Angeboten nach
+  p = { id, pc, cands: [], audio: null, polite: me.id > id, makingOffer: false, ignoreOffer: false, videoSender: null };
   voice.peers.set(id, p);
-  voice.stream.getTracks().forEach(t => pc.addTrack(t, voice.stream));
+  voice.stream.getAudioTracks().forEach(t => pc.addTrack(t, voice.stream));
+  if (voice.cam) p.videoSender = pc.addTrack(voice.cam, voice.stream);
+  pc.onnegotiationneeded = async () => {
+    try {
+      p.makingOffer = true;
+      await pc.setLocalDescription();
+      vsend("sig", { to: id, desc: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
+    } catch (e) { console.warn("voice negotiation", e); } finally { p.makingOffer = false; }
+  };
   pc.onicecandidate = e => { if (e.candidate) vsend("sig", { to: id, cand: e.candidate.toJSON() }); };
   pc.ontrack = e => {
-    const st = e.streams[0] || new MediaStream([e.track]);
-    if (!p.audio) { p.audio = document.createElement("audio"); p.audio.autoplay = true; p.audio.playsInline = true; document.body.appendChild(p.audio); }
-    p.audio.srcObject = st;
-    p.audio.volume = peerVol(id);
-    p.audio.play().catch(() => {});
-    addMeter(id, st);
+    const tr = e.track;
+    if (tr.kind === "audio") {
+      const st = new MediaStream([tr]);
+      if (!p.audio) { p.audio = document.createElement("audio"); p.audio.autoplay = true; p.audio.playsInline = true; document.body.appendChild(p.audio); }
+      p.audio.srcObject = st;
+      p.audio.volume = peerVol(id);
+      p.audio.play().catch(() => {});
+      addMeter(id, st);
+    } else if (tr.kind === "video") {
+      p.videoTrack = tr;
+      const m = voice.members.get(id);
+      if (!m || m.cam !== false) showCamTile(id, tr);
+      tr.onmute = () => removeCamTile(id);
+      tr.onunmute = () => { const mm = voice.members.get(id); if (!mm || mm.cam) showCamTile(id, tr); };
+    }
   };
   pc.onconnectionstatechange = () => {
-    if (pc.connectionState === "failed") { closePeer(id); if (voice.on && me.id < id) setTimeout(() => voice.on && makeOffer(id), 1500); }
+    if (pc.connectionState === "failed") { closePeer(id); if (voice.on) setTimeout(() => voice.on && voice.members.has(id) && getPeer(id), 1500); }
   };
   return p;
-}
-async function makeOffer(id) {
-  const { pc } = getPeer(id);
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  vsend("sig", { to: id, desc: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
 }
 async function handleSig(from, op) {
   const p = getPeer(from), pc = p.pc;
   try {
     if (op.desc) {
+      const collision = op.desc.type === "offer" && (p.makingOffer || pc.signalingState !== "stable");
+      p.ignoreOffer = !p.polite && collision;
+      if (p.ignoreOffer) return;
       await pc.setRemoteDescription(op.desc);
       for (const c of p.cands.splice(0)) await pc.addIceCandidate(c).catch(() => {});
       if (op.desc.type === "offer") {
-        const ans = await pc.createAnswer();
-        await pc.setLocalDescription(ans);
+        await pc.setLocalDescription();
         vsend("sig", { to: from, desc: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
       }
     } else if (op.cand) {
-      if (pc.remoteDescription) await pc.addIceCandidate(op.cand).catch(() => {});
+      if (pc.remoteDescription) await pc.addIceCandidate(op.cand).catch(e => { if (!p.ignoreOffer) console.warn("ice", e); });
       else p.cands.push(op.cand);
     }
   } catch (e) { console.warn("voice sig", e); }
@@ -1050,21 +1107,23 @@ function closePeer(id) {
   const p = voice.peers.get(id); if (!p) return;
   try { p.pc.close(); } catch {}
   if (p.audio) { p.audio.srcObject = null; p.audio.remove(); }
-  voice.peers.delete(id); dropMeter(id);
+  voice.peers.delete(id); dropMeter(id); removeCamTile(id);
 }
 function voiceSignal(op, local) {
   if (local) return;
   const from = op.by;
   if (op.t === "join" || op.t === "here") {
-    voice.members.set(from, { name: op.name, muted: !!op.muted });
-    if (voice.on && op.t === "join") vsend("here", { to: from });
-    // Nur die kleinere ID baut die Verbindung auf → keine doppelten Angebote
-    if (voice.on && me.id < from && (op.t === "join" || op.to === me.id) && !voice.peers.has(from)) makeOffer(from);
+    voice.members.set(from, { name: op.name, muted: !!op.muted, cam: !!op.cam });
+    if (voice.on && op.t === "join") { vsend("here", { to: from }); getPeer(from); }
     if (op.t === "join") sys(`${op.name} ist dem Sprachchat beigetreten`);
   } else if (op.t === "leave") {
     voice.members.delete(from); closePeer(from);
   } else if (op.t === "state") {
-    const m = voice.members.get(from); if (m) m.muted = !!op.muted;
+    const m = voice.members.get(from);
+    if (m) { m.muted = !!op.muted; m.cam = !!op.cam; }
+    const pr = voice.peers.get(from);
+    if (op.cam && pr && pr.videoTrack && !pr.videoTrack.muted) showCamTile(from, pr.videoTrack);
+    if (!op.cam) removeCamTile(from);
   } else if (op.t === "sig") {
     if (op.to !== me.id || !voice.on) return;
     handleSig(from, op);
@@ -1072,6 +1131,50 @@ function voiceSignal(op, local) {
   }
   renderPeople();
 }
+// ---------------------------------------------------------------- Webcams
+async function camToggle() {
+  if (!voice.on || !roomAllows("cam")) return;
+  if (voice.cam) {
+    voice.cam.stop(); voice.cam = null;
+    for (const p of voice.peers.values()) if (p.videoSender) p.videoSender.replaceTrack(null).catch(() => {});
+    removeCamTile(me.id);
+  } else {
+    let s;
+    try { s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24 } } }); }
+    catch { toast("Kein Zugriff auf die Kamera. Bitte im Browser erlauben.", 4000); return; }
+    voice.cam = s.getVideoTracks()[0];
+    for (const p of voice.peers.values()) {
+      if (p.videoSender) await p.videoSender.replaceTrack(voice.cam).catch(() => {});
+      else p.videoSender = p.pc.addTrack(voice.cam, voice.stream);
+    }
+    showCamTile(me.id, voice.cam, true);
+  }
+  vsend("state");
+  renderVoice();
+}
+function showCamTile(id, track, self) {
+  const strip = $("#camStrip");
+  let tile = strip.querySelector(`.cam-tile[data-uid="${CSS.escape(id)}"]`);
+  if (!tile) {
+    tile = document.createElement("div");
+    tile.className = "cam-tile" + (self ? " self" : "");
+    tile.dataset.uid = id;
+    const name = self ? "Du" : ((voice.members.get(id) || {}).name || "?");
+    tile.innerHTML = `<video autoplay playsinline muted></video><span class="nm">${esc(name)}</span>`;
+    strip.appendChild(tile);
+  }
+  const v = tile.querySelector("video");
+  if (!v.srcObject || v.srcObject.getVideoTracks()[0] !== track) v.srcObject = new MediaStream([track]);
+  v.play().catch(() => {});
+  strip.hidden = false;
+}
+function removeCamTile(id) {
+  const strip = $("#camStrip"); if (!strip) return;
+  const t = strip.querySelector(`.cam-tile[data-uid="${CSS.escape(id)}"]`);
+  if (t) { const v = t.querySelector("video"); if (v) v.srcObject = null; t.remove(); }
+  strip.hidden = !strip.children.length;
+}
+const roomAllows = k => !state.settings || state.settings[k] !== false;
 function addMeter(id, stream) {
   if (!voice.ctx) return;
   try {
@@ -1096,10 +1199,12 @@ setInterval(() => {
 function renderVoice() {
   const box = $("#voiceCtl"); if (!box) return;
   const n = voice.members.size;
+  if (!roomAllows("voice")) { box.innerHTML = ""; if (voice.on) voiceLeave(); return; }
   if (!voice.on) {
     box.innerHTML = `<button class="btn btn-ghost" type="button" data-v="join"><span class="ms">mic</span>Sprachchat${n ? ` · ${n}` : ""}</button>`;
   } else {
-    box.innerHTML = `<button class="icon-btn ${voice.muted ? "danger" : "live"}" type="button" data-v="mute" aria-label="${voice.muted ? "Mikrofon an" : "Stumm schalten"}" title="${voice.muted ? "Mikrofon an" : "Stumm schalten"}"><span class="ms">${voice.muted ? "mic_off" : "mic"}</span></button>
+    const camBtn = roomAllows("cam") ? `<button class="icon-btn ${voice.cam ? "live" : ""}" type="button" data-v="cam" aria-label="${voice.cam ? "Kamera aus" : "Kamera an"}" title="${voice.cam ? "Kamera aus" : "Kamera an"}"><span class="ms">${voice.cam ? "videocam" : "videocam_off"}</span></button>` : "";
+    box.innerHTML = camBtn + `<button class="icon-btn ${voice.muted ? "danger" : "live"}" type="button" data-v="mute" aria-label="${voice.muted ? "Mikrofon an" : "Stumm schalten"}" title="${voice.muted ? "Mikrofon an" : "Stumm schalten"}"><span class="ms">${voice.muted ? "mic_off" : "mic"}</span></button>
       <button class="btn btn-ghost vbtn" type="button" data-v="vol" aria-label="Lautstärke im Sprachchat" title="Lautstärke pro Person"><span class="ms">volume_up</span>${n} im Voice</button>
       <button class="icon-btn danger" type="button" data-v="leave" aria-label="Sprachchat verlassen" title="Sprachchat verlassen"><span class="ms">call_end</span></button>`;
   }
@@ -1108,6 +1213,7 @@ $("#voiceCtl").addEventListener("click", e => {
   const b = e.target.closest("button[data-v]"); if (!b) return;
   if (b.dataset.v === "join") voiceJoin();
   else if (b.dataset.v === "mute") voiceToggleMute();
+  else if (b.dataset.v === "cam") camToggle();
   else if (b.dataset.v === "vol") { e.stopPropagation(); toggleVoiceMenu(); }
   else { $("#voiceMenu").hidden = true; voiceLeave(); }
 });
@@ -1169,6 +1275,96 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("online", () => { if (room && offlineSince) scheduleReconnect(0); });
 window.addEventListener("offline", () => { if (room) { setLive(false, "offline"); if (!offlineSince) offlineSince = now(); } });
 
+
+// ---------------------------------------------------------------- Abstimmung
+let pollSel = null; // Set der ausgewählten qids im Auswahlmodus
+function pollWinner(po) {
+  const c = po.options.map(() => 0);
+  for (const i of Object.values(po.votes)) if (c[i] !== undefined) c[i]++;
+  let best = 0; c.forEach((v, i) => { if (v > c[best]) best = i; });
+  return { counts: c, best };
+}
+function endPoll(cancel) {
+  const po = state.poll; if (!po) return;
+  send({ k: "pollEnd", pid: po.pid, winner: pollWinner(po).best, cancel: !!cancel });
+}
+function updatePollTimer() {
+  const el = $("#pollLeft"); if (!el || !state.poll) return;
+  el.textContent = Math.max(0, Math.ceil((state.poll.endsAt - now()) / 1000));
+}
+function renderPoll() {
+  const card = $("#pollCard"), po = state.poll;
+  card.hidden = !po;
+  if (!po) return;
+  const { counts } = pollWinner(po), total = counts.reduce((a, b) => a + b, 0), mine = po.votes[me.id];
+  card.innerHTML = `<div class="poll-head"><span class="ms">how_to_vote</span><b>Was schauen wir?</b><span class="muted">noch <span id="pollLeft">${Math.max(0, Math.ceil((po.endsAt - now()) / 1000))}</span> s · ${total} ${total === 1 ? "Stimme" : "Stimmen"}</span>
+    ${po.by === me.id ? `<button class="btn btn-ghost" type="button" data-poll="end">Jetzt auswerten</button><button class="icon-btn" type="button" data-poll="cancel" aria-label="Abstimmung abbrechen"><span class="ms">close</span></button>` : ""}</div>
+    <div class="poll-opts">${po.options.map((o, i) => {
+      const pct = total ? Math.round(counts[i] / total * 100) : 0;
+      const th = o.thumb ? `<img src="${esc(o.thumb)}" alt="">` : `<div class="tw-fill ${SRC_CLASS[o.src]}"><span class="ms">${SRC_ICON[o.src]}</span></div>`;
+      return `<button type="button" class="poll-opt ${mine === i ? "mine" : ""}" data-idx="${i}" aria-pressed="${mine === i}">
+        <span class="thumb">${th}</span><span class="po-body"><span class="po-title">${esc(o.title)}</span>
+        <span class="po-bar"><span style="width:${pct}%"></span></span><span class="po-n">${counts[i]} · ${pct} %</span></span></button>`;
+    }).join("")}</div>`;
+}
+$("#pollCard").addEventListener("click", e => {
+  const b = e.target.closest("[data-poll]");
+  if (b) { endPoll(b.dataset.poll === "cancel"); return; }
+  const o = e.target.closest(".poll-opt"); if (!o || !state.poll) return;
+  send({ k: "pollVote", pid: state.poll.pid, idx: +o.dataset.idx });
+});
+function renderPollBar() {
+  const bar = $("#pollBar");
+  if (!pollSel) { bar.innerHTML = `<button class="btn btn-ghost" type="button" id="pollStart"><span class="ms">how_to_vote</span>Abstimmen lassen</button>`; return; }
+  const n = pollSel.size;
+  bar.innerHTML = `<span class="label-sm" style="color:var(--primary)">${n} von 2–4 gewählt</span>
+    <button class="btn btn-primary" type="button" id="pollGo" ${n < 2 ? "disabled" : ""}><span class="ms">how_to_vote</span>Starten (30 s)</button>
+    <button class="btn btn-ghost" type="button" id="pollStop">Abbrechen</button>`;
+}
+$("#pollBar").addEventListener("click", e => {
+  const id = (e.target.closest("button") || {}).id;
+  if (id === "pollStart") {
+    if (state.poll) { toast("Es läuft schon eine Abstimmung."); return; }
+    if (state.queue.length < 2) { toast("Dafür braucht die Warteschlange mindestens 2 Videos."); return; }
+    pollSel = new Set(); filter = "all"; $$(".fchip").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.f === "all")));
+  } else if (id === "pollStop") pollSel = null;
+  else if (id === "pollGo" && pollSel && pollSel.size >= 2) {
+    const options = state.queue.filter(q => pollSel.has(q.qid)).slice(0, 4);
+    pollSel = null;
+    send({ k: "poll", pid: uid(8), options, secs: 30 });
+  }
+  renderPollBar(); renderQueue();
+});
+
+// ---------------------------------------------------------------- Statistik
+let statsActive = false, lastStatsSave = 0;
+function saveStats() {
+  lastStatsSave = now();
+  if (room && state.stats) store.set("sc_stats_" + room.code, state.stats);
+}
+function mergeSavedStats() {
+  // Wenn der Raum leer war, bleibt die Statistik trotzdem erhalten (lokal im Browser gespeichert)
+  const saved = room && store.get("sc_stats_" + room.code, null);
+  if (!saved) return;
+  const cur = ST();
+  if ((saved.sec || 0) > (cur.sec || 0)) state.stats = { ...freshStats(), ...saved };
+}
+function topList(map, unit) {
+  const rows = Object.entries(map || {}).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  if (!rows.length) return `<div class="muted" style="font-size:13px">Noch nichts.</div>`;
+  const max = rows[0][1];
+  return rows.map(([n, v], i) => `<div class="st-row"><span class="st-rank">${i === 0 ? "👑" : i + 1}</span><span class="st-name">${esc(n)}</span>
+    <span class="st-bar"><span style="width:${Math.round(v / max * 100)}%"></span></span><span class="st-val">${v}${unit}</span></div>`).join("");
+}
+function renderStats() {
+  const s = ST(), h = Math.floor(s.sec / 3600), m = Math.floor((s.sec % 3600) / 60);
+  $("#statsBody").innerHTML = `
+    <div class="st-big"><div><b>${h ? h + " h " : ""}${m} min</b><span>zusammen geschaut</span></div><div><b>${s.videos}</b><span>Videos gestartet</span></div></div>
+    <h4>Meiste Videos eingereicht</h4>${topList(s.added, "")}
+    <h4>Meiste Upvotes bekommen</h4>${topList(s.upv, " ▲")}
+    <h4>Reaktions-Könige</h4>${topList(s.react, "")}
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Die Statistik gilt für diesen Raum (Code ${esc(room.code)}) und bleibt in euren Browsern gespeichert.</p>`;
+}
 // ---------------------------------------------------------------- Room lifecycle
 function genCode() {
   const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -1182,7 +1378,7 @@ function inviteUrl(withPw) {
   return base + "#/r/" + room.code + (withPw && room.pw ? "?k=" + b64e(room.pw) : "");
 }
 
-async function enterRoom({ name, code, pw, title, creating }) {
+async function enterRoom({ name, code, pw, title, creating, settings }) {
   name = name.trim().slice(0, 24) || "Gast";
   store.set("sc_name", name);
   const id = store.sget("sc_id", null) || uid(12);
@@ -1191,7 +1387,7 @@ async function enterRoom({ name, code, pw, title, creating }) {
   const channel = (await sha256(code + "\u0000" + (pw || ""))).slice(0, 32);
   room = { code, pw: pw || "", channel };
   state = freshState();
-  if (creating) state.title = (title || "").trim() || `${name}s Raum`;
+  if (creating) { state.title = (title || "").trim() || `${name}s Raum`; state.settings = settings || { voice: true, cam: true }; }
   synced = !!creating;
   people = [me]; sysMsgs = [];
   store.sset("sc_session", { code, pw: room.pw, name });
@@ -1234,6 +1430,7 @@ function requestSnapshot(n) {
     if (n < 2) return requestSnapshot(n + 1);
     // Niemand antwortet → wir sind allein
     synced = true;
+    mergeSavedStats();
     state.title = state.title || "Raum " + room.code;
     renderAll();
     toast(room.pw ? "Noch niemand hier. Sind deine Freunde schon drin? Dann prüfe das Passwort." : "Du bist als Erste(r) im Raum.", 5000);
@@ -1244,6 +1441,7 @@ function setLive(on, txt) {
   if (txt) $("#liveTxt").textContent = txt; else renderHead();
 }
 function leaveRoom() {
+  saveStats(); pollSel = null;
   voiceLeave(); hideUpNext(); clearTimeout(reconnectT); offlineSince = 0;
   voice.members.clear();
   transport && transport.leave(); transport = null;
@@ -1335,7 +1533,9 @@ $("#tabJoin").onclick = () => selectLobbyTab(true);
 
 $("#formCreate").addEventListener("submit", e => {
   e.preventDefault();
-  enterRoom({ name: $("#cName").value, code: genCode(), pw: $("#cPass").value, title: $("#cTitle").value, creating: true });
+  const settings = { voice: $("#cVoice").checked, cam: $("#cVoice").checked && $("#cCam").checked };
+  store.set("sc_room_opts", settings);
+  enterRoom({ name: $("#cName").value, code: genCode(), pw: $("#cPass").value, title: $("#cTitle").value, creating: true, settings });
 });
 $("#formJoin").addEventListener("submit", e => {
   e.preventDefault();
@@ -1353,6 +1553,7 @@ $("#qList").addEventListener("click", e => {
   const qid = btn.closest(".q-item").dataset.qid;
   const it = state.queue.find(q => q.qid === qid); if (!it) return;
   const act = btn.dataset.act, mine = (it.votes || {})[me.id] || 0;
+  if (act === "pick") { if (pollSel.has(qid)) pollSel.delete(qid); else if (pollSel.size < 4) pollSel.add(qid); else toast("Höchstens 4 Videos."); renderPollBar(); renderQueue(); return; }
   if (act === "play") send({ k: "load", video: it, pos: it.start || 0, playing: true });
   if (act === "del") send({ k: "qdel", qid });
   if (act === "up") send({ k: "qvote", qid, v: mine === 1 ? 0 : 1 });
@@ -1391,13 +1592,16 @@ $$(".fchip").forEach(b => b.onclick = () => {
   $$(".fchip").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
   renderQueue();
 });
-function selectRTab(chat) {
-  chatActive = chat;
-  $("#rtQueue").setAttribute("aria-selected", String(!chat));
-  $("#rtChat").setAttribute("aria-selected", String(chat));
-  $("#paneQueue").hidden = chat; $("#paneChat").hidden = !chat;
-  if (chat) { $("#unread").hidden = true; const b = $("#chatList"); b.scrollTop = b.scrollHeight; }
+function selectRTab(which) {
+  if (which === true) which = "chat"; if (which === false) which = "queue";
+  chatActive = which === "chat"; statsActive = which === "stats";
+  [["queue", "#rtQueue", "#paneQueue"], ["chat", "#rtChat", "#paneChat"], ["stats", "#rtStats", "#paneStats"]].forEach(([k, t, pn]) => {
+    $(t).setAttribute("aria-selected", String(which === k)); $(pn).hidden = which !== k;
+  });
+  if (chatActive) { $("#unread").hidden = true; const b = $("#chatList"); b.scrollTop = b.scrollHeight; }
+  if (statsActive) renderStats();
 }
+$("#rtStats").onclick = () => selectRTab("stats");
 $("#chatList").addEventListener("click", e => {
   const b = e.target.closest(".ts-link"); if (!b) return;
   userSeek(+b.dataset.t);
@@ -1473,6 +1677,9 @@ $("#inviteCopy").onclick = () => copy($("#inviteLink").value, $("#inviteCopy"));
 $("#inviteClose").onclick = () => $("#inviteModal").hidden = true;
 $("#inviteModal").addEventListener("click", e => { if (e.target.id === "inviteModal") $("#inviteModal").hidden = true; });
 $("#leaveBtn").onclick = leaveRoom;
+$("#extBtn").onclick = () => { $("#extModal").hidden = false; };
+$("#extClose").onclick = () => { $("#extModal").hidden = true; };
+$("#extModal").addEventListener("click", e => { if (e.target.id === "extModal") $("#extModal").hidden = true; });
 
 async function copy(text, btn) {
   try { await navigator.clipboard.writeText(text); }
@@ -1497,6 +1704,9 @@ window.__sharedcue = () => ({ synced, leader: (leader() || {}).name, isLeader: i
 // ---------------------------------------------------------------- Boot
 function boot() {
   $("#modeNote").hidden = HAS_SUPA;
+  const ro = store.get("sc_room_opts", { voice: true, cam: true });
+  $("#cVoice").checked = ro.voice !== false; $("#cCam").checked = ro.cam !== false; $("#cCam").disabled = !$("#cVoice").checked;
+  $("#cVoice").onchange = () => { $("#cCam").disabled = !$("#cVoice").checked; };
   const name = store.get("sc_name", "");
   $("#cName").value = name; $("#jName").value = name;
   const m = location.hash.match(/^#\/r\/([A-Za-z0-9-]+)(?:\?k=([\w-]+))?/);
