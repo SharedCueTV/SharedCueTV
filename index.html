@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SharedCue – Gemeinsam schauen</title>
+<meta name="description" content="Videos und Streams mit Freunden synchron schauen.">
+<meta name="theme-color" content="#0b0f19">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="preload" href="fonts/material-symbols-subset.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="glow-bg" aria-hidden="true"></div>
+
+<!-- ================= LOBBY ================= -->
+<main id="lobby" class="lobby">
+  <section class="panel lobby-card" aria-labelledby="lobbyTitle">
+    <div class="brand"><img src="icon.svg" alt=""><span class="brand-name">Shared<span>Cue</span></span></div>
+    <div>
+      <h1 id="lobbyTitle">Gemeinsam schauen.</h1>
+      <p class="lead">YouTube und Twitch mit Freunden – synchron, mit Chat und Warteschlange.</p>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Raum erstellen oder beitreten">
+      <button class="tab" role="tab" id="tabCreate" aria-selected="true" aria-controls="formCreate">Raum erstellen</button>
+      <button class="tab" role="tab" id="tabJoin" aria-selected="false" aria-controls="formJoin">Beitreten</button>
+    </div>
+
+    <form id="formCreate" class="form" role="tabpanel" aria-labelledby="tabCreate" autocomplete="off">
+      <div class="field">
+        <label for="cName">Dein Name</label>
+        <input id="cName" class="input" maxlength="24" required placeholder="z. B. Kevin">
+      </div>
+      <div class="field">
+        <label for="cTitle">Raumname</label>
+        <input id="cTitle" class="input" maxlength="48" placeholder="z. B. Filmabend">
+      </div>
+      <div class="field">
+        <label for="cPass">Passwort (optional)</label>
+        <input id="cPass" class="input" type="password" maxlength="64" placeholder="Leer lassen für keinen Schutz">
+      </div>
+      <button class="btn btn-primary" type="submit"><span class="ms">add_circle</span>Raum erstellen</button>
+    </form>
+
+    <form id="formJoin" class="form" role="tabpanel" aria-labelledby="tabJoin" autocomplete="off" hidden>
+      <div class="field">
+        <label for="jName">Dein Name</label>
+        <input id="jName" class="input" maxlength="24" required placeholder="z. B. Lisa">
+      </div>
+      <div class="field">
+        <label for="jCode">Raum-Code</label>
+        <input id="jCode" class="input" maxlength="12" required placeholder="z. B. K7Q-4MX" style="text-transform: uppercase; font-family: var(--mono); letter-spacing: .08em">
+      </div>
+      <div class="field">
+        <label for="jPass">Passwort</label>
+        <input id="jPass" class="input" type="password" maxlength="64" placeholder="Nur falls der Raum eins hat">
+      </div>
+      <button class="btn btn-primary" type="submit"><span class="ms">login</span>Beitreten</button>
+    </form>
+
+    <div id="modeNote" class="mode-note" hidden>
+      <span class="ms" style="font-size:18px">science</span>
+      <span><b>Testmodus:</b> Noch nicht mit Supabase verbunden. Räume synchronisieren nur zwischen Tabs in diesem Browser.</span>
+    </div>
+  </section>
+</main>
+
+<!-- ================= ROOM ================= -->
+<div id="room" hidden>
+  <header class="topbar">
+    <div class="brand"><img src="icon.svg" alt=""><span class="brand-name">Shared<span>Cue</span></span></div>
+    <div class="room-chip">
+      <span class="room-code"><span class="ms">tag</span><span id="codeLabel">—</span></span>
+      <span class="sync-live"><span class="dot" id="liveDot"></span><span class="txt" id="liveTxt">verbinde …</span></span>
+    </div>
+    <form class="add-bar" id="topAdd" autocomplete="off">
+      <span class="ms">search</span>
+      <label class="sr" for="topAddInput" hidden>Video-Link</label>
+      <input id="topAddInput" class="input" placeholder="YouTube- oder Twitch-Link einfügen …" aria-label="YouTube- oder Twitch-Link">
+      <button class="btn btn-ghost" type="submit"><span class="ms" style="position:static;font-size:16px;color:var(--primary)">playlist_add</span>Queue</button>
+    </form>
+    <div class="spacer"></div>
+    <button class="btn btn-primary" id="inviteBtn" type="button"><span class="ms">person_add</span><span class="invite-txt">Freunde einladen</span></button>
+    <button class="icon-btn" id="leaveBtn" type="button" aria-label="Raum verlassen" title="Raum verlassen"><span class="ms">logout</span></button>
+  </header>
+
+  <div class="layout">
+    <!-- Sidebar -->
+    <aside class="sidebar" aria-label="Teilnehmer">
+      <section class="panel side-card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span class="label-sm muted" id="peopleCount">Teilnehmer</span>
+          <span class="label-sm" style="color:var(--primary)">Alle steuern</span>
+        </div>
+        <ul class="people" id="peopleList"></ul>
+      </section>
+      <section class="panel side-card">
+        <div style="display:flex;align-items:center;gap:6px;color:var(--primary)"><span class="ms" style="font-size:16px">speed</span><span class="label">Sync-Status</span></div>
+        <p style="margin:0" class="muted" id="syncInfo">Warte auf Video …</p>
+      </section>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <section class="panel room-head">
+        <div class="room-title">
+          <span class="dot" aria-hidden="true"></span>
+          <div style="min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0">
+              <h2 id="roomTitle">Raum</h2>
+              <span class="pill badge-sync" id="syncBadge">SYNCHRON</span>
+            </div>
+            <div class="muted" style="font-size:12px" id="roomSub">—</div>
+          </div>
+        </div>
+        <div class="stack head-people" id="headPeople"></div>
+        <div class="share-pill">
+          <span class="ms" style="color:var(--primary);font-size:16px">link</span>
+          <span class="url" id="shareUrl">—</span>
+          <button class="btn" id="copyBtn" type="button">Kopieren</button>
+        </div>
+      </section>
+
+      <section class="stage" aria-label="Player">
+        <div class="screen">
+          <div id="playerHost"></div>
+          <div class="click-shield" id="shield" title="Klick: Play/Pause · Doppelklick: Vollbild"></div>
+          <div class="stage-badges">
+            <span class="sbadge" id="srcBadge" hidden></span>
+            <span class="sbadge sync" id="driftBadge" hidden><span class="ms">sync</span><span id="driftTxt">SYNC</span></span>
+          </div>
+          <div class="reactions-layer" id="reactLayer"></div>
+          <div class="center-flash" id="centerFlash"><span class="ms fill" id="centerIcon">pause</span></div>
+          <div class="toast-actor" id="actorToast"></div>
+          <div class="empty-stage" id="emptyStage">
+            <img src="icon.svg" alt="">
+            <h3>Noch läuft nichts</h3>
+            <p>Füge rechts einen YouTube- oder Twitch-Link hinzu. Das erste Video startet automatisch für alle.</p>
+          </div>
+          <div class="gesture" id="gesture" hidden>
+            <button class="btn btn-primary" id="gestureBtn" type="button" style="min-height:52px;padding:0 24px"><span class="ms fill">play_arrow</span>Mitschauen</button>
+          </div>
+        </div>
+        <div class="controls">
+          <div class="scrub"><input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Position im Video"></div>
+          <div class="ctrl-row">
+            <button class="play-btn" id="playBtn" type="button" aria-label="Abspielen"><span class="ms fill" id="playIcon">play_arrow</span></button>
+            <button class="icon-btn" id="back10" type="button" aria-label="10 Sekunden zurück"><span class="ms">replay_10</span></button>
+            <button class="icon-btn" id="fwd10" type="button" aria-label="10 Sekunden vor"><span class="ms">forward_10</span></button>
+            <button class="btn btn-ghost" id="resyncBtn" type="button" style="min-height:36px"><span class="ms" style="font-size:16px">sync</span>Resync</button>
+            <span class="time" id="timeTxt">0:00 / 0:00</span>
+            <span class="grow"></span>
+            <button class="icon-btn" id="skipBtn" type="button" aria-label="Nächstes Video" title="Nächstes Video aus der Warteschlange"><span class="ms">skip_next</span></button>
+            <div class="vol">
+              <button class="icon-btn" id="muteBtn" type="button" aria-label="Stumm schalten"><span class="ms" id="volIcon">volume_up</span></button>
+              <input type="range" id="vol" min="0" max="100" value="80" aria-label="Lautstärke">
+            </div>
+            <button class="icon-btn" id="fsBtn" type="button" aria-label="Vollbild"><span class="ms">fullscreen</span></button>
+          </div>
+        </div>
+      </section>
+
+      <div class="react-bar" role="group" aria-label="Reaktionen" id="reactBar"></div>
+
+      <section class="panel now-card" id="nowCard" hidden>
+        <div class="chips" id="nowChips"></div>
+        <h3 id="nowTitle"></h3>
+        <div class="info-line"><span class="ms">group</span><span>Alle im Raum dürfen Play, Pause und Spulen steuern. Weicht dein Player mehr als 1,5 s ab, holt er automatisch auf.</span></div>
+      </section>
+    </main>
+
+    <!-- Right panel -->
+    <aside class="side-right" aria-label="Warteschlange und Chat">
+      <div class="rtabs" role="tablist">
+        <button class="rtab" role="tab" id="rtQueue" aria-selected="true" aria-controls="paneQueue"><span class="ms">playlist_play</span>Warteschlange <span class="count" id="qCount">0</span></button>
+        <button class="rtab" role="tab" id="rtChat" aria-selected="false" aria-controls="paneChat"><span class="ms">forum</span>Chat <span class="unread" id="unread" hidden></span></button>
+      </div>
+
+      <section class="panel rpanel" id="paneQueue" role="tabpanel" aria-labelledby="rtQueue">
+        <span class="label-sm muted">Video oder Stream einreichen</span>
+        <form class="add-row" id="qAdd" autocomplete="off">
+          <input class="input" id="qAddInput" placeholder="YouTube- oder Twitch-Link" aria-label="YouTube- oder Twitch-Link">
+          <button class="btn btn-primary" type="submit" style="min-height:42px"><span class="ms">add</span>Hinzufügen</button>
+        </form>
+        <div class="filters" role="group" aria-label="Filter">
+          <button class="fchip" data-f="all" aria-pressed="true">Alle</button>
+          <button class="fchip" data-f="yt" aria-pressed="false">YouTube</button>
+          <button class="fchip" data-f="tw" aria-pressed="false">Twitch</button>
+        </div>
+        <div class="notice" id="qNotice" hidden><span class="ms">celebration</span><span id="qNoticeTxt"></span></div>
+        <div class="scroll" id="qList"></div>
+      </section>
+
+      <section class="panel rpanel" id="paneChat" role="tabpanel" aria-labelledby="rtChat" hidden>
+        <div class="scroll" id="chatList" aria-live="polite"></div>
+        <form class="chat-form" id="chatForm" autocomplete="off">
+          <input class="input" id="chatInput" maxlength="500" placeholder="Nachricht schreiben …" aria-label="Nachricht">
+          <button class="icon-btn" type="submit" aria-label="Senden" style="width:44px;height:44px;background:var(--primary-c);color:var(--on-primary)"><span class="ms fill">send</span></button>
+        </form>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<!-- Invite modal -->
+<div class="modal-bg" id="inviteModal" hidden>
+  <div class="panel modal" role="dialog" aria-modal="true" aria-labelledby="inviteTitle">
+    <h3 id="inviteTitle">Freunde einladen</h3>
+    <p class="muted" style="margin:0">Schick den Link per WhatsApp oder Discord. Wer ihn öffnet, gibt nur noch seinen Namen ein.</p>
+    <div class="field">
+      <label for="inviteLink">Einladungslink</label>
+      <div class="row"><input id="inviteLink" class="input" readonly><button class="btn btn-primary" id="inviteCopy" type="button">Kopieren</button></div>
+    </div>
+    <label class="switch" id="pwSwitchWrap"><input type="checkbox" id="pwInLink" checked> Passwort im Link mitschicken</label>
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <span class="muted">Code: <b style="color:var(--text);font-family:var(--mono)" id="inviteCode"></b></span>
+      <button class="btn btn-ghost" id="inviteClose" type="button">Schließen</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
