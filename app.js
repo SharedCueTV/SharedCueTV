@@ -66,6 +66,8 @@ function parseMedia(raw) {
   const ytId = id => /^[\w-]{11}$/.test(id || "") ? id : null;
   if (host === "youtu.be") { const id = ytId(u.pathname.slice(1).split("/")[0]); return id && { src: "yt", ref: id, start: parseT(tParam) }; }
   if (host.endsWith("youtube.com") || host === "youtube-nocookie.com") {
+    const list = u.searchParams.get("list");
+    if (list && /^[\w-]{10,}$/.test(list) && (u.pathname === "/playlist" || !u.searchParams.get("v"))) return { src: "ytpl", ref: list };
     let id = ytId(u.searchParams.get("v"));
     if (!id) { const m = u.pathname.match(/^\/(?:shorts|live|embed|v)\/([\w-]{11})/); id = m && m[1]; }
     return id ? { src: "yt", ref: id, start: parseT(tParam) } : null;
@@ -194,6 +196,7 @@ class SupabaseTransport {
           this.emit("status", "online");
           if (!done) { done = true; resolve(); }
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          if (this.ch !== ch) return; // bewusst verlassen
           this.emit("status", "offline");
           if (!done) { done = true; reject(new Error(status)); }
         }
@@ -201,7 +204,12 @@ class SupabaseTransport {
     });
   }
   send(t, d) { this.ch && this.ch.send({ type: "broadcast", event: "m", payload: { t, d, f: this.meta.id } }); }
-  leave() { if (this.ch) { this.ch.untrack(); this.client.removeChannel(this.ch); this.ch = null; } }
+  leave() {
+    if (!this.ch) return;
+    const ch = this.ch; this.ch = null; this.leaving = true;
+    try { ch.untrack(); } catch {}
+    this.client.removeChannel(ch).finally(() => { this.leaving = false; });
+  }
 }
 
 // ---------------------------------------------------------------- Players
@@ -238,6 +246,7 @@ class YTAdapter {
         events: {
           onReady: () => { this.ready = true; this.cb.volume(this); if (pos) this.p.seekTo(pos, true); if (playing) this.p.playVideo(); resolve(); },
           onStateChange: e => { if (e.data === 1) this.started = true; if (e.data === 0) this.cb.ended(); },
+          onPlaybackRateChange: e => { if (Math.abs(e.data - (this.setRateTo || 1)) > 0.01) this.cb.rate(e.data); },
           onError: e => this.cb.error(e.data === 101 || e.data === 150 ? "Dieses Video erlaubt kein Einbetten." : e.data === 100 ? "Video nicht gefunden oder privat." : "YouTube-Fehler " + e.data)
         }
       });
@@ -251,6 +260,8 @@ class YTAdapter {
   isPlaying() { return this.ready && this.p.getPlayerState && this.p.getPlayerState() === 1; }
   isBuffering() { return this.ready && this.p.getPlayerState && this.p.getPlayerState() === 3; }
   setVolume(v, muted) { if (!this.ready) return; this.p.setVolume(v); muted ? this.p.mute() : this.p.unMute(); }
+  rate() { return this.ready && this.p.getPlaybackRate ? this.p.getPlaybackRate() || 1 : 1; }
+  setRate(r) { if (!this.ready) return; this.setRateTo = r; this.p.setPlaybackRate(r); }
   destroy() { try { this.p && this.p.destroy(); } catch {} this.host.innerHTML = ""; }
 }
 
@@ -379,11 +390,16 @@ let lastCorrection = 0;
 let lastPlayCmd = 0;
 let gestureNeeded = false;
 let chatActive = false;
+let refreshWanted = false;  // frischen Stand anfordern (nach Verbindungsabbruch)
+let offlineSince = 0, reconnectT = null, backoff = 0, hiddenAt = 0;
+const fmtRate = r => String(+r.toFixed(2)).replace(".", ",") + "×";
 
 function freshState() {
-  return { title: "", video: null, pb: { playing: false, pos: 0, at: now() }, queue: [], chat: [] };
+  return { title: "", video: null, pb: { playing: false, pos: 0, at: now(), rate: 1 }, queue: [], chat: [] };
 }
-const expectedPos = () => state.pb.playing ? state.pb.pos + (now() - state.pb.at) / 1000 : state.pb.pos;
+const RATE = () => state.pb.rate || 1;
+const expectedPos = () => state.pb.playing ? state.pb.pos + (now() - state.pb.at) / 1000 * RATE() : state.pb.pos;
+const setPb = (playing, pos, rate = RATE()) => { state.pb = { playing, pos, at: now(), rate }; };
 const leader = () => [...people].sort((a, b) => (a.joinedAt - b.joinedAt) || (a.id < b.id ? -1 : 1))[0];
 const isLeader = () => { const l = leader(); return !l || l.id === me.id; };
 const nameOf = id => (people.find(p => p.id === id) || {}).name;
@@ -403,19 +419,33 @@ function applyOp(op, local) {
     case "load": {
       if (op.prev && vkey(state.video) !== op.prev) return; // jemand war schneller
       state.video = op.video;
-      state.pb = { playing: op.playing !== false, pos: op.pos || 0, at: now() };
+      setPb(op.playing !== false, op.pos || 0, 1);
+      hideUpNext();
       if (op.video && op.video.qid) state.queue = state.queue.filter(q => q.qid !== op.video.qid);
       if (!local && op.video) actorToast(`${actor} startet: ${op.video.title}`);
       break;
     }
-    case "play": state.pb = { playing: true, pos: op.pos, at: now() }; if (!local) actorToast(`${actor} hat abgespielt`); flash("play_arrow"); break;
-    case "pause": state.pb = { playing: false, pos: op.pos, at: now() }; if (!local) actorToast(`${actor} hat pausiert`); flash("pause"); break;
-    case "seek": state.pb = { playing: state.pb.playing, pos: op.pos, at: now() }; if (!local) actorToast(`${actor} spult zu ${fmt(op.pos)}`); break;
+    case "play": setPb(true, op.pos); if (!local) actorToast(`${actor} hat abgespielt`); flash("play_arrow"); break;
+    case "pause": setPb(false, op.pos); if (!local) actorToast(`${actor} hat pausiert`); flash("pause"); break;
+    case "seek": setPb(state.pb.playing, op.pos); if (!local) actorToast(`${actor} spult zu ${fmt(op.pos)}`); break;
     case "qadd":
       if (!state.queue.some(q => q.qid === op.item.qid)) state.queue.push(op.item);
       if (!local) showNotice(`${actor} hat „${op.item.title}“ zur Warteschlange hinzugefügt`);
       break;
     case "qdel": state.queue = state.queue.filter(q => q.qid !== op.qid); break;
+    case "qaddMany":
+      for (const it of op.items || []) if (!state.queue.some(q => q.qid === it.qid)) state.queue.push(it);
+      if (!local) showNotice(`${actor} hat eine Playlist mit ${(op.items || []).length} Videos hinzugefügt`);
+      break;
+    case "rate":
+      setPb(state.pb.playing, op.pos, clamp(+op.rate || 1, 0.25, 2));
+      if (!local) actorToast(`${actor}: Geschwindigkeit ${fmtRate(RATE())}`);
+      break;
+    case "upnext":
+      if (vkey(state.video) !== op.prev) return;
+      showUpNext(op.video, op.secs || 5, op.prev);
+      return;
+    case "upnextCancel": hideUpNext(); if (!local) actorToast(`${actor} hat das nächste Video abgebrochen`); return;
     case "qvote": {
       const it = state.queue.find(q => q.qid === op.qid);
       if (it) { it.votes = it.votes || {}; if (op.v) it.votes[op.by] = op.v; else delete it.votes[op.by]; }
@@ -428,6 +458,7 @@ function applyOp(op, local) {
       break;
     case "react": spawnEmoji(op.emoji, local ? "" : op.name); return;
     case "countdown": runCountdown(local ? "Du" : op.name); return;
+    case "voice": voiceSignal(op, local); return;
     case "title": state.title = op.title; break;
   }
   renderAll();
@@ -442,16 +473,19 @@ function onMessage(t, d, from) {
     const l = [...others].sort((a, b) => (a.joinedAt - b.joinedAt) || (a.id < b.id ? -1 : 1))[0];
     if (synced && (!l || l.id === me.id)) {
       const snap = JSON.parse(JSON.stringify(state));
-      snap.pb = { playing: state.pb.playing, pos: player && loadedKey === vkey(state.video) && isLeader() ? player.time() : expectedPos(), at: 0 };
+      snap.pb = { playing: state.pb.playing, pos: player && loadedKey === vkey(state.video) && isLeader() && !player.manual && !player.live ? player.time() : expectedPos(), at: 0, rate: RATE() };
       transport.send("snap", { to: from, state: snap });
     }
+    if (voice.on) transport.send("op", { k: "voice", t: "here", by: me.id, name: me.name, muted: voice.muted });
     return;
   }
   if (t === "snap") {
-    if (d.to !== me.id || synced) return;
-    synced = true;
+    if (d.to !== me.id || (synced && !refreshWanted)) return;
+    const wasRefresh = synced && refreshWanted;
+    synced = true; refreshWanted = false;
     state = d.state;
     state.pb.at = now();
+    if (wasRefresh) actorToast("Wieder verbunden – Stand aktualisiert");
     if (!state.title) state.title = "Raum " + room.code;
     renderAll(); syncPlayer(true);
     return;
@@ -459,7 +493,7 @@ function onMessage(t, d, from) {
   if (t === "tick") {
     if (!synced || from === me.id) return;
     if (vkey(state.video) !== d.v) return;
-    state.pb = { playing: d.playing, pos: d.pos, at: now() };
+    setPb(d.playing, d.pos, d.rate || RATE());
     return;
   }
 }
@@ -467,7 +501,12 @@ function onMessage(t, d, from) {
 // ---------------------------------------------------------------- Player sync
 const host = () => $("#playerHost");
 const playerCb = {
-  ended() { if (isLeader()) playNext(vkey(state.video)); },
+  ended() { if (isLeader()) playNext(vkey(state.video), true); },
+  rate(r) {
+    // Geschwindigkeit wurde im YouTube-Menü geändert → für alle übernehmen
+    if (!state.video || Math.abs(r - RATE()) < 0.01) return;
+    send({ k: "rate", rate: r, pos: curPos() });
+  },
   error(msg) {
     toast(msg, 4000);
     if (isLeader() && state.video) { const k = vkey(state.video); setTimeout(() => playNext(k), 3000); }
@@ -510,6 +549,7 @@ function enforce(fromOp) {
   const want = state.pb.playing;
   if (want && !player.isPlaying() && !player.isBuffering() && !gestureNeeded) { player.play(); lastPlayCmd = now(); setTimeout(checkBlocked, 2000); }
   if (!want && player.isPlaying()) player.pause();
+  if (player.setRate && Math.abs(player.rate() - RATE()) > 0.01) player.setRate(RATE());
   if (player.live) return;
   const diff = player.time() - expectedPos();
   const leaderSelf = isLeader() && people.length > 1 && !fromOp;
@@ -524,9 +564,10 @@ function checkBlocked() {
   if (!player.isPlaying() && !player.isBuffering()) { gestureNeeded = true; $("#gesture").hidden = false; }
 }
 
-function playNext(prevKey) {
+function playNext(prevKey, withCountdown) {
   const next = sortedQueue()[0];
-  if (next) send({ k: "load", video: next, pos: next.start || 0, playing: true, prev: prevKey });
+  if (next && withCountdown) send({ k: "upnext", video: next, prev: prevKey, secs: 5 });
+  else if (next) send({ k: "load", video: next, pos: next.start || 0, playing: true, prev: prevKey });
   else if (state.pb.playing) send({ k: "pause", pos: player ? player.time() : expectedPos() });
 }
 
@@ -573,8 +614,8 @@ setInterval(() => {
   if (!state.video || !player || !player.ready || player.manual || loadedKey !== vkey(state.video)) return;
   if (player.isBuffering()) return;
   const pos = player.live ? 0 : player.time();
-  state.pb = { playing: state.pb.playing, pos, at: now() };
-  transport.send("tick", { v: vkey(state.video), pos, playing: state.pb.playing });
+  setPb(state.pb.playing, pos);
+  transport.send("tick", { v: vkey(state.video), pos, playing: state.pb.playing, rate: RATE() });
 }, TICK_MS);
 
 // ---------------------------------------------------------------- Rendering
@@ -582,7 +623,7 @@ function renderAll() {
   renderHead(); renderPeople(); renderQueue(); renderChat(); renderNow(); renderSource();
 }
 function avatarHTML(p, cls = "") {
-  return `<span class="avatar ${cls}" style="background:${esc(p.color || colorFor(p.id))}" title="${esc(p.name)}">${esc(initials(p.name))}</span>`;
+  return `<span class="avatar ${cls}" data-uid="${esc(p.id)}" style="background:${esc(p.color || colorFor(p.id))}" title="${esc(p.name)}">${esc(initials(p.name))}</span>`;
 }
 function renderHead() {
   $("#roomTitle").textContent = state.title || "Raum";
@@ -602,7 +643,9 @@ function renderPeople() {
   $("#peopleList").innerHTML = people.map(p => `
     <li class="person">${avatarHTML(p, p.id === me.id ? "me" : "")}
       <div class="who"><div class="nm">${esc(p.name)}${p.id === me.id ? " (du)" : ""}</div>
-      <div class="st">${l && l.id === p.id ? "Sync-Referenz" : "verbunden"}</div></div></li>`).join("");
+      <div class="st">${l && l.id === p.id ? "Sync-Referenz" : "verbunden"}</div></div>
+      ${voice.members.has(p.id) ? `<span class="ms vmic ${voice.members.get(p.id).muted ? "off" : ""}" title="${voice.members.get(p.id).muted ? "stumm" : "im Sprachchat"}">${voice.members.get(p.id).muted ? "mic_off" : "mic"}</span>` : ""}</li>`).join("");
+  renderVoice();
 }
 function renderSource() {
   const v = state.video, b = $("#srcBadge");
@@ -660,9 +703,19 @@ function renderChat() {
   const all = [...state.chat.map(m => ({ ...m, kind: "msg" })), ...sysMsgs.map(m => ({ ...m, kind: "sys" }))].sort((a, b) => a.ts - b.ts);
   box.innerHTML = all.length ? all.map(m => m.kind === "sys"
     ? `<div class="chat-sys">${esc(m.text)}</div>`
-    : `<div class="chat-msg">${avatarHTML({ id: m.by, name: m.name, color: m.color })}<div class="bubble"><div><span class="nm">${esc(m.name)}</span><span class="ts">${hhmm(m.ts)}</span></div><div class="tx">${esc(m.text)}</div></div></div>`
+    : `<div class="chat-msg">${avatarHTML({ id: m.by, name: m.name, color: m.color })}<div class="bubble"><div><span class="nm">${esc(m.name)}</span><span class="ts">${hhmm(m.ts)}</span></div><div class="tx">${linkTimes(esc(m.text))}</div></div></div>`
   ).join("") : `<div class="q-empty"><span class="ms">forum</span><div>Noch keine Nachrichten.</div></div>`;
   if (atBottom) box.scrollTop = box.scrollHeight;
+}
+// "bei 2:31" im Chat → klickbarer Sprung für alle
+function linkTimes(html) {
+  if (!state.video || state.video.src === "twl" || state.video.src === "ig") return html;
+  const dur = player && player.ready ? player.duration() : 0;
+  return html.replace(/(^|[^\d:])(\d{1,2}):([0-5]\d)(?::([0-5]\d))?(?![\d:])/g, (m, pre, a, b, c) => {
+    const secs = c !== undefined ? (+a) * 3600 + (+b) * 60 + (+c) : (+a) * 60 + (+b);
+    if (dur && secs > dur + 1) return m;
+    return `${pre}<button type="button" class="ts-link" data-t="${secs}" title="Für alle dorthin springen">${m.slice(pre.length)}</button>`;
+  });
 }
 function sys(text) { sysMsgs.push({ text, ts: now() }); if (sysMsgs.length > 40) sysMsgs.shift(); renderChat(); }
 
@@ -726,6 +779,8 @@ setInterval(() => {
   const playing = state.pb.playing;
   const manual = !!(player && player.manual);
   $("#playIcon").textContent = manual ? "timer" : playing ? "pause" : "play_arrow";
+  $("#rateBtn").textContent = fmtRate(RATE());
+  $("#rateBtn").hidden = !(player && player.setRate);
   $("#playBtn").setAttribute("aria-label", manual ? "Countdown für alle starten" : playing ? "Pausieren" : "Abspielen");
   // Klick-Schutz erst aktiv, wenn der Player einmal lief: so bleiben Altersabfragen
   // ("Start Watching" bei Twitch) und Einwilligungen im Player anklickbar
@@ -755,7 +810,7 @@ $(".stage").addEventListener("mouseleave", () => { shieldPauseUntil = 0; });
 // (YouTube hat das Setzen der Qualität per API abgeschafft)
 function openQuality() {
   const menu = $("#qualMenu");
-  if (!menu.hidden) { menu.hidden = true; return; }
+  if (!menu.hidden && menu.dataset.kind === "qual") { menu.hidden = true; return; }
   if (!player || !player.ready) { toast("Erst ein Video starten."); return; }
   if (player.kind === "yt") {
     const st = $(".stage"); st.classList.add("show-gear");
@@ -767,6 +822,7 @@ function openQuality() {
   if (player.kind === "tw" && player.qualities) {
     const qs = player.qualities(), cur = player.quality();
     if (!qs.length) { toast("Twitch liefert gerade keine Qualitätsstufen."); return; }
+    menu.dataset.kind = "qual";
     menu.innerHTML = `<div class="label-sm muted" style="padding:4px 8px">Qualität (nur bei dir)</div>` +
       qs.map(q => `<button type="button" data-q="${esc(q.group)}" aria-pressed="${q.group === cur}">${esc(q.name)}${q.group === cur ? " ✓" : ""}</button>`).join("");
     menu.hidden = false;
@@ -780,6 +836,235 @@ $("#qualMenu").addEventListener("click", e => {
   player.setQuality(b.dataset.q); $("#qualMenu").hidden = true; toast("Qualität: " + b.textContent.replace(" ✓", ""));
 });
 document.addEventListener("click", e => { if (!e.target.closest("#qualMenu")) $("#qualMenu").hidden = true; });
+
+
+// ---------------------------------------------------------------- Als Nächstes (Countdown)
+let upNext = null, upNextT = null;
+function showUpNext(video, secs, prev) {
+  hideUpNext();
+  upNext = { video, prev, left: secs };
+  const el = $("#upNext");
+  const thumb = video.thumb ? `<img src="${esc(video.thumb)}" alt="">` : `<div class="tw-fill ${SRC_CLASS[video.src]}"><span class="ms">${SRC_ICON[video.src]}</span></div>`;
+  el.innerHTML = `<div class="thumb">${thumb}</div>
+    <div class="un-body"><div class="label-sm" style="color:var(--primary)">Als Nächstes in <span id="unLeft">${secs}</span> s</div>
+    <div class="un-title">${esc(video.title)}</div>
+    <div class="un-actions"><button class="btn btn-primary" type="button" data-un="now"><span class="ms">skip_next</span>Jetzt</button>
+    <button class="btn btn-ghost" type="button" data-un="cancel"><span class="ms">close</span>Abbrechen</button></div></div>`;
+  el.hidden = false;
+  upNextT = setInterval(() => {
+    if (!upNext) return;
+    upNext.left--;
+    const l = $("#unLeft"); if (l) l.textContent = Math.max(0, upNext.left);
+    if (upNext.left <= 0) {
+      const u = upNext; hideUpNext();
+      if (isLeader()) send({ k: "load", video: u.video, pos: u.video.start || 0, playing: true, prev: u.prev });
+    }
+  }, 1000);
+}
+function hideUpNext() { clearInterval(upNextT); upNextT = null; upNext = null; const el = $("#upNext"); if (el) el.hidden = true; }
+$("#upNext").addEventListener("click", e => {
+  const b = e.target.closest("button[data-un]"); if (!b || !upNext) return;
+  if (b.dataset.un === "now") { const u = upNext; send({ k: "load", video: u.video, pos: u.video.start || 0, playing: true, prev: u.prev }); }
+  else send({ k: "upnextCancel" });
+});
+
+// ---------------------------------------------------------------- Geschwindigkeit (für alle)
+const RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+$("#rateBtn").onclick = e => {
+  e.stopPropagation();
+  const menu = $("#qualMenu");
+  if (!menu.hidden && menu.dataset.kind === "rate") { menu.hidden = true; return; }
+  if (!player || !player.ready || !player.setRate) { toast("Geschwindigkeit geht bei YouTube-Videos."); return; }
+  menu.dataset.kind = "rate";
+  menu.innerHTML = `<div class="label-sm muted" style="padding:4px 8px">Geschwindigkeit (für alle)</div>` +
+    RATES.map(r => `<button type="button" data-rate="${r}" aria-pressed="${Math.abs(r - RATE()) < 0.01}">${r === 1 ? "Normal" : fmtRate(r)}${Math.abs(r - RATE()) < 0.01 ? " ✓" : ""}</button>`).join("");
+  menu.hidden = false;
+};
+$("#qualMenu").addEventListener("click", e => {
+  const b = e.target.closest("button[data-rate]"); if (!b) return;
+  send({ k: "rate", rate: +b.dataset.rate, pos: curPos() });
+  $("#qualMenu").hidden = true;
+});
+
+// ---------------------------------------------------------------- Sprachchat (WebRTC, Signalisierung über den Raum)
+const ICE = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun.cloudflare.com:3478" }];
+const voice = { on: false, muted: false, stream: null, peers: new Map(), members: new Map(), ctx: null, meters: new Map(), speaking: new Set() };
+function vsend(t, extra = {}) { send({ k: "voice", t, muted: voice.muted, ...extra }); }
+async function voiceJoin() {
+  if (voice.on) return;
+  if (!navigator.mediaDevices || !window.RTCPeerConnection) { toast("Dein Browser unterstützt keinen Sprachchat."); return; }
+  try {
+    voice.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  } catch { toast("Kein Zugriff aufs Mikrofon. Bitte im Browser erlauben.", 4000); return; }
+  voice.on = true; voice.muted = false;
+  try { voice.ctx = voice.ctx || new (window.AudioContext || window.webkitAudioContext)(); voice.ctx.resume(); } catch {}
+  addMeter(me.id, voice.stream);
+  voice.members.set(me.id, { name: me.name, muted: false });
+  vsend("join");
+  renderPeople();
+  toast("Im Sprachchat – Kopfhörer verhindern Echo vom Video.", 3500);
+}
+function voiceLeave(silent) {
+  if (!voice.on) return;
+  if (!silent) vsend("leave");
+  for (const id of [...voice.peers.keys()]) closePeer(id);
+  voice.stream && voice.stream.getTracks().forEach(t => t.stop());
+  voice.stream = null; voice.on = false;
+  voice.members.delete(me.id); dropMeter(me.id);
+  renderPeople();
+}
+function voiceToggleMute() {
+  if (!voice.on) return;
+  voice.muted = !voice.muted;
+  voice.stream.getAudioTracks().forEach(t => t.enabled = !voice.muted);
+  voice.members.set(me.id, { name: me.name, muted: voice.muted });
+  vsend("state");
+  renderPeople();
+}
+function getPeer(id) {
+  let p = voice.peers.get(id);
+  if (p) return p;
+  const pc = new RTCPeerConnection({ iceServers: ICE });
+  p = { pc, cands: [], audio: null };
+  voice.peers.set(id, p);
+  voice.stream.getTracks().forEach(t => pc.addTrack(t, voice.stream));
+  pc.onicecandidate = e => { if (e.candidate) vsend("sig", { to: id, cand: e.candidate.toJSON() }); };
+  pc.ontrack = e => {
+    const st = e.streams[0] || new MediaStream([e.track]);
+    if (!p.audio) { p.audio = document.createElement("audio"); p.audio.autoplay = true; p.audio.playsInline = true; document.body.appendChild(p.audio); }
+    p.audio.srcObject = st;
+    p.audio.play().catch(() => {});
+    addMeter(id, st);
+  };
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === "failed") { closePeer(id); if (voice.on && me.id < id) setTimeout(() => voice.on && makeOffer(id), 1500); }
+  };
+  return p;
+}
+async function makeOffer(id) {
+  const { pc } = getPeer(id);
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  vsend("sig", { to: id, desc: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
+}
+async function handleSig(from, op) {
+  const p = getPeer(from), pc = p.pc;
+  try {
+    if (op.desc) {
+      await pc.setRemoteDescription(op.desc);
+      for (const c of p.cands.splice(0)) await pc.addIceCandidate(c).catch(() => {});
+      if (op.desc.type === "offer") {
+        const ans = await pc.createAnswer();
+        await pc.setLocalDescription(ans);
+        vsend("sig", { to: from, desc: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } });
+      }
+    } else if (op.cand) {
+      if (pc.remoteDescription) await pc.addIceCandidate(op.cand).catch(() => {});
+      else p.cands.push(op.cand);
+    }
+  } catch (e) { console.warn("voice sig", e); }
+}
+function closePeer(id) {
+  const p = voice.peers.get(id); if (!p) return;
+  try { p.pc.close(); } catch {}
+  if (p.audio) { p.audio.srcObject = null; p.audio.remove(); }
+  voice.peers.delete(id); dropMeter(id);
+}
+function voiceSignal(op, local) {
+  if (local) return;
+  const from = op.by;
+  if (op.t === "join" || op.t === "here") {
+    voice.members.set(from, { name: op.name, muted: !!op.muted });
+    if (voice.on && op.t === "join") vsend("here", { to: from });
+    // Nur die kleinere ID baut die Verbindung auf → keine doppelten Angebote
+    if (voice.on && me.id < from && (op.t === "join" || op.to === me.id) && !voice.peers.has(from)) makeOffer(from);
+    if (op.t === "join") sys(`${op.name} ist dem Sprachchat beigetreten`);
+  } else if (op.t === "leave") {
+    voice.members.delete(from); closePeer(from);
+  } else if (op.t === "state") {
+    const m = voice.members.get(from); if (m) m.muted = !!op.muted;
+  } else if (op.t === "sig") {
+    if (op.to !== me.id || !voice.on) return;
+    handleSig(from, op);
+    return;
+  }
+  renderPeople();
+}
+function addMeter(id, stream) {
+  if (!voice.ctx) return;
+  try {
+    dropMeter(id);
+    const src = voice.ctx.createMediaStreamSource(stream);
+    const an = voice.ctx.createAnalyser(); an.fftSize = 512;
+    src.connect(an);
+    voice.meters.set(id, { an, src, buf: new Uint8Array(an.fftSize) });
+  } catch {}
+}
+function dropMeter(id) { const m = voice.meters.get(id); if (m) { try { m.src.disconnect(); } catch {} voice.meters.delete(id); } voice.speaking.delete(id); }
+setInterval(() => {
+  if (!voice.meters.size) return;
+  for (const [id, m] of voice.meters) {
+    m.an.getByteTimeDomainData(m.buf);
+    let sum = 0; for (const v of m.buf) { const x = (v - 128) / 128; sum += x * x; }
+    const loud = Math.sqrt(sum / m.buf.length) > 0.035 && !(id === me.id && voice.muted);
+    if (loud) voice.speaking.add(id); else voice.speaking.delete(id);
+  }
+  $$(".avatar[data-uid]").forEach(a => a.classList.toggle("speaking", voice.speaking.has(a.dataset.uid)));
+}, 200);
+function renderVoice() {
+  const box = $("#voiceCtl"); if (!box) return;
+  const n = voice.members.size;
+  if (!voice.on) {
+    box.innerHTML = `<button class="btn btn-ghost" type="button" data-v="join"><span class="ms">mic</span>Sprachchat${n ? ` · ${n}` : ""}</button>`;
+  } else {
+    box.innerHTML = `<button class="icon-btn ${voice.muted ? "danger" : "live"}" type="button" data-v="mute" aria-label="${voice.muted ? "Mikrofon an" : "Stumm schalten"}" title="${voice.muted ? "Mikrofon an" : "Stumm schalten"}"><span class="ms">${voice.muted ? "mic_off" : "mic"}</span></button>
+      <span class="label-sm" style="color:var(--primary)">${n} im Voice</span>
+      <button class="icon-btn danger" type="button" data-v="leave" aria-label="Sprachchat verlassen" title="Sprachchat verlassen"><span class="ms">call_end</span></button>`;
+  }
+}
+$("#voiceCtl").addEventListener("click", e => {
+  const b = e.target.closest("button[data-v]"); if (!b) return;
+  if (b.dataset.v === "join") voiceJoin();
+  else if (b.dataset.v === "mute") voiceToggleMute();
+  else voiceLeave();
+});
+
+// ---------------------------------------------------------------- Verbindung halten
+function requestRefresh() {
+  if (!transport || !room || people.length < 2) return;
+  refreshWanted = true;
+  transport.send("hello", {});
+  setTimeout(() => { refreshWanted = false; }, 4000);
+}
+function onStatus(s) {
+  if (!room) return;
+  if (s === "online") {
+    setLive(true);
+    clearTimeout(reconnectT);
+    if (offlineSince) { offlineSince = 0; backoff = 0; setTimeout(requestRefresh, 800); }
+  } else {
+    setLive(false, "getrennt – verbinde neu …");
+    if (!offlineSince) offlineSince = now();
+    scheduleReconnect();
+  }
+}
+function scheduleReconnect(delay) {
+  clearTimeout(reconnectT);
+  reconnectT = setTimeout(async () => {
+    if (!room || !offlineSince || !transport) return;
+    try { transport.leave(); await transport.connect(room.channel, me); }
+    catch { backoff = Math.min(backoff + 1, 5); scheduleReconnect(); }
+  }, delay ?? 6000 * (1 + backoff));
+}
+document.addEventListener("visibilitychange", () => {
+  if (!room) return;
+  if (document.hidden) { hiddenAt = now(); return; }
+  if (offlineSince) scheduleReconnect(0);
+  else if (hiddenAt && now() - hiddenAt > 20000) requestRefresh();
+  hiddenAt = 0;
+});
+window.addEventListener("online", () => { if (room && offlineSince) scheduleReconnect(0); });
+window.addEventListener("offline", () => { if (room) { setLive(false, "offline"); if (!offlineSince) offlineSince = now(); } });
 
 // ---------------------------------------------------------------- Room lifecycle
 function genCode() {
@@ -816,21 +1101,22 @@ async function enterRoom({ name, code, pw, title, creating }) {
 
   transport = HAS_SUPA ? new SupabaseTransport(CFG) : new LocalTransport();
   transport.on("message", onMessage);
-  transport.on("status", s => setLive(s === "online"));
+  transport.on("status", onStatus);
+  offlineSince = 0; backoff = 0;
   transport.on("presence", list => {
     const before = new Set(people.map(p => p.id));
     people = list;
     const after = new Set(list.map(p => p.id));
     for (const p of list) if (!before.has(p.id) && p.id !== me.id) sys(`${p.name} ist beigetreten`);
-    for (const id of before) if (!after.has(id) && id !== me.id) sys(`${(prevPeople.get(id) || {}).name || "Jemand"} hat den Raum verlassen`);
+    for (const id of before) if (!after.has(id) && id !== me.id) { sys(`${(prevPeople.get(id) || {}).name || "Jemand"} hat den Raum verlassen`); voice.members.delete(id); closePeer(id); }
     prevPeople = new Map(list.map(p => [p.id, p]));
     renderHead(); renderPeople();
   });
   try {
     await transport.connect(channel, me);
   } catch (e) {
-    toast("Verbindung fehlgeschlagen. Prüfe deine Internetverbindung.", 5000);
-    setLive(false, "offline");
+    toast("Verbindung fehlgeschlagen – ich versuche es weiter.", 5000);
+    onStatus("offline");
     return;
   }
   if (!synced) requestSnapshot(0);
@@ -855,6 +1141,8 @@ function setLive(on, txt) {
   if (txt) $("#liveTxt").textContent = txt; else renderHead();
 }
 function leaveRoom() {
+  voiceLeave(); hideUpNext(); clearTimeout(reconnectT); offlineSince = 0;
+  voice.members.clear();
   transport && transport.leave(); transport = null;
   if (player) { player.destroy(); player = null; } loadedKey = "";
   room = null; synced = false; people = [];
@@ -870,6 +1158,7 @@ async function addLink(raw, inputEl) {
   const media = parseMedia(raw);
   if (!media) { toast("Unterstützt: YouTube, Twitch, TikTok und Instagram-Reels.", 3500); return; }
   if (media.src === "clip") { toast("Twitch-Clips lassen sich nicht synchron steuern. Nimm das ganze Video (twitch.tv/videos/…)."); return; }
+  if (media.src === "ytpl") return addPlaylist(media.ref, inputEl);
   if (inputEl) { inputEl.disabled = true; }
   const item = await buildItem(media);
   if (inputEl) { inputEl.disabled = false; inputEl.focus(); }
@@ -877,6 +1166,45 @@ async function addLink(raw, inputEl) {
   if (inputEl) inputEl.value = "";
   if (!state.video) send({ k: "load", video: item, pos: item.start || 0, playing: true });
   else { send({ k: "qadd", item }); toast("Zur Warteschlange hinzugefügt"); }
+}
+// YouTube-Playlist: Video-IDs über einen unsichtbaren YouTube-Player holen (kein API-Schlüssel nötig)
+async function resolvePlaylist(list) {
+  await loadYT();
+  return new Promise(res => {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "position:fixed;left:-10000px;top:0;width:320px;height:180px;pointer-events:none";
+    const el = document.createElement("div"); wrap.appendChild(el); document.body.appendChild(wrap);
+    let done = false, p;
+    const finish = ids => { if (done) return; done = true; try { p && p.destroy(); } catch {} wrap.remove(); res(ids || []); };
+    p = new YT.Player(el, {
+      width: 320, height: 180,
+      playerVars: { listType: "playlist", list, autoplay: 0, mute: 1, controls: 0 },
+      events: {
+        onReady: () => {
+          const poll = n => { const ids = p.getPlaylist && p.getPlaylist(); if (ids && ids.length) return finish(ids.slice(0, 100)); if (n > 30) return finish([]); setTimeout(() => poll(n + 1), 300); };
+          poll(0);
+        },
+        onError: () => finish([])
+      }
+    });
+    setTimeout(() => finish([]), 15000);
+  });
+}
+async function addPlaylist(list, inputEl) {
+  if (inputEl) inputEl.disabled = true;
+  toast("Lade Playlist …");
+  const ids = await resolvePlaylist(list);
+  if (!ids.length) { if (inputEl) inputEl.disabled = false; toast("Playlist nicht lesbar (privat oder ein YouTube-Mix?).", 4000); return; }
+  const items = new Array(ids.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(6, ids.length) }, async () => {
+    while (i < ids.length) { const k = i++; items[k] = await buildItem({ src: "yt", ref: ids[k], start: 0 }); items[k].at = now() + k; }
+  }));
+  if (inputEl) { inputEl.disabled = false; inputEl.value = ""; inputEl.focus(); }
+  let rest = items;
+  if (!state.video) { send({ k: "load", video: items[0], pos: 0, playing: true }); rest = items.slice(1); }
+  if (rest.length) send({ k: "qaddMany", items: rest });
+  toast(`Playlist: ${items.length} Videos hinzugefügt`, 3000);
 }
 function sendChat(text) {
   text = text.trim().slice(0, 500);
@@ -939,6 +1267,11 @@ function selectRTab(chat) {
   $("#paneQueue").hidden = chat; $("#paneChat").hidden = !chat;
   if (chat) { $("#unread").hidden = true; const b = $("#chatList"); b.scrollTop = b.scrollHeight; }
 }
+$("#chatList").addEventListener("click", e => {
+  const b = e.target.closest(".ts-link"); if (!b) return;
+  userSeek(+b.dataset.t);
+  actorToast(`Springe zu ${b.textContent}`);
+});
 $("#rtQueue").onclick = () => selectRTab(false);
 $("#rtChat").onclick = () => selectRTab(true);
 

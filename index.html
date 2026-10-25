@@ -7,8 +7,8 @@
 <meta name="description" content="Videos und Streams mit Freunden synchron schauen.">
 <meta name="theme-color" content="#0b0f19">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
-<link rel="preload" href="fonts/material-symbols-subset.woff2?v=8" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=8">
+<link rel="preload" href="fonts/material-symbols-subset.woff2?v=9" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css?v=9">
 </head>
 <body>
 <div class="glow-bg" aria-hidden="true"></div>
@@ -114,6 +114,7 @@
           </div>
         </div>
         <div class="stack head-people" id="headPeople"></div>
+        <div class="voice-ctl" id="voiceCtl"></div>
         <div class="share-pill">
           <span class="ms" style="color:var(--primary);font-size:16px">link</span>
           <span class="url" id="shareUrl">—</span>
@@ -131,6 +132,7 @@
           </div>
           <div class="reactions-layer" id="reactLayer"></div>
           <div class="countdown" id="countdown" hidden aria-live="assertive"></div>
+          <div class="upnext panel" id="upNext" hidden aria-live="polite"></div>
           <div class="center-flash" id="centerFlash"><span class="ms fill" id="centerIcon">pause</span></div>
           <div class="toast-actor" id="actorToast"></div>
           <div class="empty-stage" id="emptyStage">
@@ -157,6 +159,7 @@
               <button class="icon-btn" id="muteBtn" type="button" aria-label="Stumm schalten"><span class="ms" id="volIcon">volume_up</span></button>
               <input type="range" id="vol" min="0" max="100" value="80" aria-label="Lautstärke">
             </div>
+            <button class="btn btn-ghost rate-btn" id="rateBtn" type="button" aria-label="Geschwindigkeit für alle" title="Geschwindigkeit für alle" hidden>1×</button>
             <button class="icon-btn" id="qualBtn" type="button" aria-label="Qualität" title="Qualität"><span class="ms">hd</span></button>
             <button class="icon-btn" id="fsBtn" type="button" aria-label="Vollbild"><span class="ms">fullscreen</span></button>
           </div>
@@ -200,7 +203,7 @@
       <section class="panel rpanel" id="paneChat" role="tabpanel" aria-labelledby="rtChat" hidden>
         <div class="scroll" id="chatList" aria-live="polite"></div>
         <form class="chat-form" id="chatForm" autocomplete="off">
-          <input class="input" id="chatInput" maxlength="500" placeholder="Nachricht schreiben …" aria-label="Nachricht">
+          <input class="input" id="chatInput" maxlength="500" placeholder="Nachricht … (z. B. „ab 2:31 wird’s gut“)" aria-label="Nachricht">
           <button class="icon-btn" type="submit" aria-label="Senden" style="width:44px;height:44px;background:var(--primary-c);color:var(--on-primary)"><span class="ms fill">send</span></button>
         </form>
       </section>
@@ -227,7 +230,7 @@
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
-<script src="config.js?v=8"></script>
-<script src="app.js?v=8"></script>
+<script src="config.js?v=9"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

@@ -1,0 +1,17 @@
+# Hält das kostenlose Supabase-Projekt aktiv (wird sonst nach ~7 Tagen ohne Nutzung pausiert).
+name: Supabase wach halten
+on:
+  schedule:
+    - cron: "17 6 * * 1,4"   # montags und donnerstags, 06:17 UTC
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Supabase anpingen
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://pvwgktntvrzcmivxsiaf.supabase.co/rest/v1/" \
+            -H "apikey: sb_publishable_gawxkr-pLpLLoFYUElz0mA_WkpuDN1b")
+          echo "HTTP $code"
+          test "$code" -lt 500

@@ -5,7 +5,7 @@
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 500; src: url(fonts/space-grotesk-latin-500-normal.woff2) format("woff2"); }
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 600; src: url(fonts/space-grotesk-latin-600-normal.woff2) format("woff2"); }
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 700; src: url(fonts/space-grotesk-latin-700-normal.woff2) format("woff2"); }
-@font-face { font-family: "Material Symbols Outlined"; font-style: normal; font-display: block; font-weight: 100 700; src: url(fonts/material-symbols-subset.woff2?v=8) format("woff2"); }
+@font-face { font-family: "Material Symbols Outlined"; font-style: normal; font-display: block; font-weight: 100 700; src: url(fonts/material-symbols-subset.woff2?v=9) format("woff2"); }
 :root {
   --bg: #0b0f19;
   --surface: #0f131d;
@@ -441,3 +441,30 @@ input[type=range]:disabled { cursor: default; opacity: .5; }
 .qual-menu button { text-align: left; padding: 10px 12px; border-radius: 8px; color: var(--text-2); font-weight: 600; min-height: 40px; }
 .qual-menu button:hover { background: rgba(255,255,255,.08); color: var(--primary); }
 .qual-menu button[aria-pressed="true"] { color: var(--primary); }
+
+/* ---------- Sprachchat ---------- */
+.voice-ctl { display: flex; align-items: center; gap: 8px; }
+.voice-ctl .btn { min-height: 36px; }
+.icon-btn.live { background: rgba(6,182,212,.2); color: var(--primary); border-color: rgba(6,182,212,.5); }
+.icon-btn.danger { background: rgba(255,180,171,.14); color: var(--error); border-color: rgba(255,180,171,.35); }
+.avatar.speaking { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--primary), 0 0 14px rgba(76,215,246,.8); }
+.vmic { font-size: 18px; color: var(--primary); }
+.vmic.off { color: var(--error); }
+
+/* ---------- Als Nächstes ---------- */
+.upnext {
+  position: absolute; right: 14px; bottom: 14px; z-index: 29; width: min(380px, calc(100% - 28px));
+  display: flex; gap: 12px; padding: 12px; align-items: center; background: rgba(23,27,38,.95);
+  animation: toastIn .25s ease-out;
+}
+.upnext .thumb { width: 112px; }
+.un-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.un-title { color: var(--text); font-weight: 700; font-size: 13px; line-height: 18px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.un-actions { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+.un-actions .btn { min-height: 34px; padding: 0 12px; }
+
+/* ---------- Geschwindigkeit & Zeitstempel ---------- */
+.rate-btn { min-height: 40px; padding: 0 12px; min-width: 54px; }
+.ts-link { display: inline; padding: 0 4px; border-radius: 6px; background: rgba(6,182,212,.16); color: var(--primary); font: 600 12px/18px var(--mono); }
+.ts-link:hover { background: rgba(6,182,212,.3); }
+@media (max-width: 600px) { .upnext .thumb { display: none; } }
