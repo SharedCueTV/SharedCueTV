@@ -98,16 +98,11 @@ async function fetchJSON(url, ms = 3500) {
 async function buildItem(media) {
   const item = { qid: uid(8), src: media.src, ref: media.ref, start: media.start || 0, by: me.id, byName: me.name, votes: {}, at: now(), title: "", thumb: "" };
   if (media.src === "tt") {
-    // oEmbed liefert Titel, Vorschaubild und löst Kurzlinks (vm.tiktok.com) auf
-    const j = await fetchJSON("https://www.tiktok.com/oembed?url=" + encodeURIComponent(media.url))
-           || await fetchJSON("https://noembed.com/embed?url=" + encodeURIComponent(media.url));
-    if (j) {
-      if (!item.ref && j.embed_product_id) item.ref = String(j.embed_product_id);
-      if (!item.ref && j.html) { const m = String(j.html).match(/data-video-id="(\d+)"/); if (m) item.ref = m[1]; }
-      item.title = j.title || ""; item.author = j.author_name || ""; item.thumb = j.thumbnail_url || "";
-    }
-    if (!item.ref) return null;
-    item.title = item.title || "TikTok-Video";
+    // TikTok erlaubt keine Metadaten-Abfrage aus dem Browser (kein CORS) → Name aus dem Link
+    if (!item.ref) return null; // Kurzlinks (vm.tiktok.com) lassen sich im Browser nicht auflösen
+    const um = String(media.url).match(/\/@([\w.]+)/);
+    item.author = um ? "@" + um[1] : "";
+    item.title = um ? `TikTok von @${um[1]}` : "TikTok-Video";
     return item;
   }
   if (media.src === "ig") {

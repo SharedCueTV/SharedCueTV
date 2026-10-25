@@ -5,7 +5,7 @@
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 500; src: url(fonts/space-grotesk-latin-500-normal.woff2) format("woff2"); }
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 600; src: url(fonts/space-grotesk-latin-600-normal.woff2) format("woff2"); }
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 700; src: url(fonts/space-grotesk-latin-700-normal.woff2) format("woff2"); }
-@font-face { font-family: "Material Symbols Outlined"; font-style: normal; font-display: block; font-weight: 100 700; src: url(fonts/material-symbols-subset.woff2?v=4) format("woff2"); }
+@font-face { font-family: "Material Symbols Outlined"; font-style: normal; font-display: block; font-weight: 100 700; src: url(fonts/material-symbols-subset.woff2?v=5) format("woff2"); }
 :root {
   --bg: #0b0f19;
   --surface: #0f131d;
