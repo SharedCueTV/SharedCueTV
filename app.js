@@ -247,7 +247,7 @@ class YTAdapter {
           onReady: () => { this.ready = true; this.cb.volume(this); if (pos) this.p.seekTo(pos, true); if (playing) this.p.playVideo(); resolve(); },
           onStateChange: e => { if (e.data === 1) this.started = true; if (e.data === 0) this.cb.ended(); },
           onPlaybackRateChange: e => { if (Math.abs(e.data - (this.setRateTo || 1)) > 0.01) this.cb.rate(e.data); },
-          onError: e => this.cb.error(e.data === 101 || e.data === 150 ? "Dieses Video erlaubt kein Einbetten." : e.data === 100 ? "Video nicht gefunden oder privat." : "YouTube-Fehler " + e.data)
+          onError: e => this.cb.error(e.data === 101 || e.data === 150 ? "Dieses Video läuft nur direkt auf YouTube (Einbetten gesperrt oder Altersbeschränkung)." : e.data === 100 ? "Video nicht gefunden oder privat." : "YouTube-Fehler " + e.data)
         }
       });
     });
@@ -283,18 +283,20 @@ class TwitchAdapter {
     await new Promise(resolve => {
       this.p.addEventListener(Twitch.Player.READY, () => { this.ready = true; this.cb.volume(this); resolve(); });
       this.p.addEventListener(Twitch.Player.ENDED, () => this.cb.ended());
-      this.p.addEventListener(Twitch.Player.PLAYING, () => { this.started = true; });
+      this.p.addEventListener(Twitch.Player.PLAYING, () => { this.started = true; this.blocked = false; this.pendingAt = 0; });
+      if (Twitch.Player.PLAYBACK_BLOCKED) this.p.addEventListener(Twitch.Player.PLAYBACK_BLOCKED, () => { this.blocked = true; this.cb.blocked && this.cb.blocked(); });
       this.p.addEventListener(Twitch.Player.OFFLINE, () => this.live && this.cb.error("Der Kanal ist gerade offline."));
       setTimeout(resolve, 8000);
     });
   }
-  play() { this.ready && this.p.play(); }
-  pause() { this.ready && this.p.pause(); }
+  play() { if (!this.ready) return; this.pendingAt = now(); this.p.play(); }
+  pause() { if (!this.ready) return; this.pendingAt = 0; this.p.pause(); }
   seek(t) { if (this.ready && !this.live) this.p.seek(t); }
   time() { return this.ready ? this.p.getCurrentTime() || 0 : 0; }
   duration() { return this.ready && !this.live ? this.p.getDuration() || 0 : 0; }
   isPlaying() { return this.ready && !this.p.isPaused(); }
-  isBuffering() { return false; }
+  // Nach play() braucht Twitch (v. a. live) einige Sekunden, bis der Stream wieder läuft
+  isBuffering() { return this.ready && !!this.pendingAt && this.p.isPaused() && now() - this.pendingAt < 10000; }
   setVolume(v, muted) { if (!this.ready) return; this.p.setVolume(v / 100); this.p.setMuted(!!muted); }
   qualities() { try { return (this.p.getQualities() || []).filter(q => q.group); } catch { return []; } }
   quality() { try { return this.p.getQuality(); } catch { return ""; } }
@@ -356,15 +358,20 @@ class InstaAdapter {
     ifr.src = `https://www.instagram.com/${item.kind === "p" ? "p" : "reel"}/${encodeURIComponent(item.ref)}/embed/`;
     ifr.allow = "autoplay; fullscreen; encrypted-media; picture-in-picture";
     ifr.setAttribute("scrolling", "no");
-    ifr.style.cssText = "position:absolute;top:0;bottom:0;left:50%;transform:translateX(-50%);height:100%;aspect-ratio:9/16;max-width:100%;border:0;background:#fff";
+    ifr.style.cssText = "position:absolute;top:0;left:50%;transform:translateX(-50%);height:100%;max-width:100%;border:0;background:#000";
+    this.ifr = ifr;
     this.host.appendChild(ifr);
+    // Instagram-Einbettung = Kopfzeile + Video (9:16) + Fußzeile → Breite so wählen, dass das Video die Höhe füllt
+    this.fit = () => { const h = this.host.clientHeight || 600, w = this.host.clientWidth || 400; ifr.style.width = Math.round(clamp((h - 205) * 9 / 16, 240, w)) + "px"; };
+    this.fit();
+    window.addEventListener("resize", this.fit);
     this.ready = true;
   }
   play() {} pause() {} seek() {}
   time() { return 0; } duration() { return 0; }
   isPlaying() { return false; } isBuffering() { return false; }
   setVolume() {}
-  destroy() { this.host.innerHTML = ""; this.ready = false; }
+  destroy() { window.removeEventListener("resize", this.fit); this.host.innerHTML = ""; this.ready = false; }
 }
 
 // ---------------------------------------------------------------- State
@@ -405,7 +412,8 @@ const isLeader = () => { const l = leader(); return !l || l.id === me.id; };
 const nameOf = id => (people.find(p => p.id === id) || {}).name;
 const vkey = v => v ? v.src + ":" + v.ref : "";
 const score = it => Object.values(it.votes || {}).reduce((a, b) => a + b, 0);
-const sortedQueue = () => [...state.queue].sort((a, b) => (score(b) - score(a)) || (a.at - b.at));
+const sortedQueue = () => [...state.queue];
+const resortByVotes = () => { state.queue = [...state.queue].sort((a, b) => score(b) - score(a)); };
 
 // ---------------------------------------------------------------- Ops
 function send(op) {
@@ -420,12 +428,14 @@ function applyOp(op, local) {
       if (op.prev && vkey(state.video) !== op.prev) return; // jemand war schneller
       state.video = op.video;
       setPb(op.playing !== false, op.pos || 0, 1);
+      state.adWait = []; state.adHeld = false;
+      if (player) { player.inAd = false; player.inAdSent = false; player._lt = null; player._adHits = 0; player.loadAt = now(); }
       hideUpNext();
       if (op.video && op.video.qid) state.queue = state.queue.filter(q => q.qid !== op.video.qid);
       if (!local && op.video) actorToast(`${actor} startet: ${op.video.title}`);
       break;
     }
-    case "play": setPb(true, op.pos); if (!local) actorToast(`${actor} hat abgespielt`); flash("play_arrow"); break;
+    case "play": state.adHeld = false; setPb(true, op.pos); if (!local) actorToast(`${actor} hat abgespielt`); flash("play_arrow"); break;
     case "pause": setPb(false, op.pos); if (!local) actorToast(`${actor} hat pausiert`); flash("pause"); break;
     case "seek": setPb(state.pb.playing, op.pos); if (!local) actorToast(`${actor} spult zu ${fmt(op.pos)}`); break;
     case "qadd":
@@ -448,9 +458,26 @@ function applyOp(op, local) {
     case "upnextCancel": hideUpNext(); if (!local) actorToast(`${actor} hat das nächste Video abgebrochen`); return;
     case "qvote": {
       const it = state.queue.find(q => q.qid === op.qid);
-      if (it) { it.votes = it.votes || {}; if (op.v) it.votes[op.by] = op.v; else delete it.votes[op.by]; }
+      if (it) { it.votes = it.votes || {}; if (op.v) it.votes[op.by] = op.v; else delete it.votes[op.by]; resortByVotes(); }
       break;
     }
+    case "qmove": {
+      const from = state.queue.findIndex(q => q.qid === op.qid);
+      if (from < 0) break;
+      const [it] = state.queue.splice(from, 1);
+      state.queue.splice(clamp(op.to | 0, 0, state.queue.length), 0, it);
+      break;
+    }
+    case "ad": {
+      // Jemand hat Werbung → Raum wartet an der aktuellen Stelle, bis alle durch sind
+      state.adWait = (state.adWait || []).filter(x => x.id !== op.by);
+      if (op.on) {
+        state.adWait.push({ id: op.by, name: op.name });
+        if (state.pb.playing && !state.adHeld) { setPb(false, op.pos); state.adHeld = true; adHeldSince = now(); }
+      } else releaseAdHold();
+      break;
+    }
+    case "adClear": state.adWait = []; releaseAdHold(true); break;
     case "chat":
       state.chat.push(op.msg);
       if (state.chat.length > CHAT_MAX) state.chat.splice(0, state.chat.length - CHAT_MAX);
@@ -507,6 +534,7 @@ const playerCb = {
     if (!state.video || Math.abs(r - RATE()) < 0.01) return;
     send({ k: "rate", rate: r, pos: curPos() });
   },
+  blocked() { if (state.pb.playing) showGesture(); },
   error(msg) {
     toast(msg, 4000);
     if (isLeader() && state.video) { const k = vkey(state.video); setTimeout(() => playNext(k), 3000); }
@@ -531,6 +559,7 @@ async function syncPlayer(force) {
       const A = { yt: YTAdapter, tw: TwitchAdapter, tt: TikTokAdapter, ig: InstaAdapter }[want];
       player = new A(host(), playerCb);
     }
+    $(".screen").classList.toggle("portrait", want === "tt" || want === "ig");
     renderSource();
     try {
       await player.load(want === "yt" ? v.ref : v, expectedPos(), state.pb.playing);
@@ -547,17 +576,40 @@ async function syncPlayer(force) {
 // YouTube-Werbung erkennen: Status "nicht gestartet" (-1), aber die Zeit läuft weiter
 function detectAd() {
   if (!player || player.kind !== "yt" || !player.ready || !player.p.getPlayerState) return false;
-  const st = player.p.getPlayerState(), t = player.time();
-  const advancing = player._lt != null && Math.abs(t - player._lt) > 0.3;
-  player._lt = t;
-  if (st === 1 || st === 2 || st === 0) player.inAd = false;
-  else if (st === -1 && advancing) player.inAd = true;
+  const st = player.p.getPlayerState(), t = player.time(), tNow = now();
+  const dt = player._lat ? (tNow - player._lat) / 1000 : 0;
+  // Zeit läuft ungefähr in Echtzeit weiter (kein Sprung durch eigenes Spulen)
+  const advancing = player._lt != null && dt > 0 && t - player._lt > 0.4 * dt && t - player._lt < 2.5 * dt + 0.3;
+  player._lt = t; player._lat = tNow;
+  const recentSeek = tNow - lastCorrection < 2500 || tNow - (player.loadAt || 0) < 1500;
+  if (st === 1 || st === 2 || st === 0 || st === 3) { player.inAd = false; player._adHits = 0; }
+  else if (st === -1 && advancing && !recentSeek) { player._adHits = (player._adHits || 0) + 1; if (player._adHits >= 2) player.inAd = true; }
+  else if (st === -1 && !advancing) player._adHits = 0;
   return !!player.inAd;
+}
+let adHeldSince = 0;
+function releaseAdHold(force) {
+  if (!state.adHeld) return;
+  if (!force && (state.adWait || []).length) return;
+  state.adHeld = false;
+  setPb(true, state.pb.pos);
+}
+function reportAd() {
+  if (!player || !state.video) return;
+  detectAd();
+  const on = !!player.inAd;
+  if (on !== !!player.inAdSent) { player.inAdSent = on; send({ k: "ad", on, pos: expectedPos() }); }
+}
+function renderAdHold() {
+  const el = $("#adHold"); if (!el) return;
+  const w = (state.adWait || []).filter(x => x.id !== me.id);
+  const show = !!state.adHeld && w.length > 0 && !(player && player.inAd);
+  el.hidden = !show;
+  if (show) $("#adHoldTxt").textContent = `Warte auf ${w.map(x => x.name).join(", ")} – Werbung läuft …`;
 }
 function enforce(fromOp) {
   if (!player || !player.ready || player.manual || !state.video || loadedKey !== vkey(state.video)) return;
-  if (!fromOp && detectAd()) return;   // während Werbung nichts erzwingen – danach wird aufgeholt
-  if (player.inAd) return;
+  if (player.inAd) return;   // während Werbung nichts erzwingen – danach wird aufgeholt
   const want = state.pb.playing;
   if (want && !player.isPlaying() && !player.isBuffering() && !gestureNeeded) { player.play(); lastPlayCmd = now(); setTimeout(checkBlocked, 2000); }
   if (!want && player.isPlaying()) player.pause();
@@ -575,7 +627,8 @@ function enforce(fromOp) {
 function checkBlocked() {
   if (!player || !player.ready || player.manual || player.inAd || !state.pb.playing) return;
   detectAd(); if (player.inAd) return;
-  if (!player.isPlaying() && !player.isBuffering()) { gestureNeeded = true; $("#gesture").hidden = false; }
+  if (player.kind === "tw" && !player.blocked && player.isBuffering()) return;
+  if (!player.isPlaying() && !player.isBuffering()) showGesture();
 }
 
 function playNext(prevKey, withCountdown) {
@@ -612,6 +665,13 @@ function userSeek(t) {
   t = clamp(t, 0, d ? d - 0.5 : t);
   send({ k: "seek", pos: t });
 }
+function showGesture() {
+  gestureNeeded = true;
+  const v = state.video;
+  $("#gestureYt").hidden = !(v && v.src === "yt");
+  if (v && v.src === "yt") $("#gestureYt").href = `https://www.youtube.com/watch?v=${encodeURIComponent(v.ref)}&t=${Math.floor(expectedPos())}s`;
+  $("#gesture").hidden = false;
+}
 function resumeGesture() {
   gestureNeeded = false; $("#gesture").hidden = true;
   if (player && player.ready && !player.manual) { playerCb.volume(player); player.seek(expectedPos()); player.play(); }
@@ -620,8 +680,12 @@ function resumeGesture() {
 // Leader-Tick + Drift-Schleife
 setInterval(() => {
   if (!room || !synced) return;
+  reportAd();
   enforce(false);
   updateDrift();
+  renderAdHold();
+  // Sicherung: nach 90 s Werbung geht es ohne den Wartenden weiter
+  if (state.adHeld && isLeader() && now() - adHeldSince > 90000) send({ k: "adClear" });
 }, 1000);
 setInterval(() => {
   if (!room || !synced || !transport || !isLeader() || people.length < 2) return;
@@ -635,7 +699,7 @@ setInterval(() => {
 
 // ---------------------------------------------------------------- Rendering
 function renderAll() {
-  renderHead(); renderPeople(); renderQueue(); renderChat(); renderNow(); renderSource();
+  renderHead(); renderPeople(); renderQueue(); renderChat(); renderNow(); renderSource(); renderAdHold();
 }
 function avatarHTML(p, cls = "") {
   return `<span class="avatar ${cls}" data-uid="${esc(p.id)}" style="background:${esc(p.color || colorFor(p.id))}" title="${esc(p.name)}">${esc(initials(p.name))}</span>`;
@@ -696,6 +760,7 @@ function renderQueue() {
     const fillIcon = { twl: "live_tv", twv: "videocam", tt: "music_note", ig: "photo_camera" }[q.src] || "videocam";
     const thumb = q.thumb ? `<img src="${esc(q.thumb)}" alt="" loading="lazy">` : `<div class="tw-fill ${SRC_CLASS[q.src]}"><span class="ms">${fillIcon}</span></div>`;
     return `<div class="q-item" data-qid="${esc(q.qid)}">
+      ${filter === "all" ? `<button class="drag" type="button" aria-label="Verschieben (ziehen)" title="Ziehen zum Verschieben"><span class="ms">drag_indicator</span></button>` : ""}
       <div class="thumb">${thumb}<span class="src ${SRC_CLASS[q.src]}"><span class="ms">${SRC_ICON[q.src]}</span></span></div>
       <div class="q-body">
         <div class="q-title">${esc(q.title)}</div>
@@ -949,6 +1014,7 @@ function getPeer(id) {
     const st = e.streams[0] || new MediaStream([e.track]);
     if (!p.audio) { p.audio = document.createElement("audio"); p.audio.autoplay = true; p.audio.playsInline = true; document.body.appendChild(p.audio); }
     p.audio.srcObject = st;
+    p.audio.volume = peerVol(id);
     p.audio.play().catch(() => {});
     addMeter(id, st);
   };
@@ -1034,7 +1100,7 @@ function renderVoice() {
     box.innerHTML = `<button class="btn btn-ghost" type="button" data-v="join"><span class="ms">mic</span>Sprachchat${n ? ` · ${n}` : ""}</button>`;
   } else {
     box.innerHTML = `<button class="icon-btn ${voice.muted ? "danger" : "live"}" type="button" data-v="mute" aria-label="${voice.muted ? "Mikrofon an" : "Stumm schalten"}" title="${voice.muted ? "Mikrofon an" : "Stumm schalten"}"><span class="ms">${voice.muted ? "mic_off" : "mic"}</span></button>
-      <span class="label-sm" style="color:var(--primary)">${n} im Voice</span>
+      <button class="btn btn-ghost vbtn" type="button" data-v="vol" aria-label="Lautstärke im Sprachchat" title="Lautstärke pro Person"><span class="ms">volume_up</span>${n} im Voice</button>
       <button class="icon-btn danger" type="button" data-v="leave" aria-label="Sprachchat verlassen" title="Sprachchat verlassen"><span class="ms">call_end</span></button>`;
   }
 }
@@ -1042,8 +1108,29 @@ $("#voiceCtl").addEventListener("click", e => {
   const b = e.target.closest("button[data-v]"); if (!b) return;
   if (b.dataset.v === "join") voiceJoin();
   else if (b.dataset.v === "mute") voiceToggleMute();
-  else voiceLeave();
+  else if (b.dataset.v === "vol") { e.stopPropagation(); toggleVoiceMenu(); }
+  else { $("#voiceMenu").hidden = true; voiceLeave(); }
 });
+function peerKey(id) { const m = voice.members.get(id); return "sc_pv_" + ((m && m.name) || id).toLowerCase(); }
+function peerVol(id) { return clamp(+store.get(peerKey(id), 100) / 100, 0, 1); }
+function toggleVoiceMenu() {
+  const menu = $("#voiceMenu");
+  if (!menu.hidden) { menu.hidden = true; return; }
+  const others = [...voice.members.entries()].filter(([id]) => id !== me.id);
+  menu.innerHTML = `<div class="label-sm muted">Lautstärke pro Person (nur bei dir)</div>` + (others.length
+    ? others.map(([id, m]) => { const v = Math.round(peerVol(id) * 100); return `<label class="vrow"><span class="nm">${esc(m.name)}${voice.peers.has(id) ? "" : " · verbindet …"}</span><input type="range" min="0" max="100" value="${v}" data-pv="${esc(id)}" style="--p:${v}%" aria-label="Lautstärke ${esc(m.name)}"></label>`; }).join("")
+    : `<div class="muted" style="font-size:13px">Noch niemand außer dir im Sprachchat.</div>`);
+  menu.hidden = false;
+}
+$("#voiceMenu").addEventListener("input", e => {
+  const r = e.target.closest("input[data-pv]"); if (!r) return;
+  const id = r.dataset.pv;
+  store.set(peerKey(id), +r.value);
+  r.style.setProperty("--p", r.value + "%");
+  const p = voice.peers.get(id); if (p && p.audio) p.audio.volume = peerVol(id);
+});
+$("#voiceMenu").addEventListener("click", e => e.stopPropagation());
+document.addEventListener("click", () => { const m = $("#voiceMenu"); if (m) m.hidden = true; });
 
 // ---------------------------------------------------------------- Verbindung halten
 function requestRefresh() {
@@ -1124,7 +1211,7 @@ async function enterRoom({ name, code, pw, title, creating }) {
     people = list;
     const after = new Set(list.map(p => p.id));
     for (const p of list) if (!before.has(p.id) && p.id !== me.id) sys(`${p.name} ist beigetreten`);
-    for (const id of before) if (!after.has(id) && id !== me.id) { sys(`${(prevPeople.get(id) || {}).name || "Jemand"} hat den Raum verlassen`); voice.members.delete(id); closePeer(id); }
+    for (const id of before) if (!after.has(id) && id !== me.id) { sys(`${(prevPeople.get(id) || {}).name || "Jemand"} hat den Raum verlassen`); voice.members.delete(id); closePeer(id); if ((state.adWait || []).some(x => x.id === id)) { state.adWait = state.adWait.filter(x => x.id !== id); releaseAdHold(); } }
     prevPeople = new Map(list.map(p => [p.id, p]));
     renderHead(); renderPeople();
   });
@@ -1271,6 +1358,34 @@ $("#qList").addEventListener("click", e => {
   if (act === "up") send({ k: "qvote", qid, v: mine === 1 ? 0 : 1 });
   if (act === "down") send({ k: "qvote", qid, v: mine === -1 ? 0 : -1 });
 });
+let drag = null;
+$("#qList").addEventListener("pointerdown", e => {
+  const h = e.target.closest(".drag"); if (!h || filter !== "all") return;
+  const item = h.closest(".q-item");
+  e.preventDefault();
+  h.setPointerCapture(e.pointerId);
+  drag = { item, qid: item.dataset.qid, startY: e.clientY, to: null };
+  item.classList.add("dragging");
+});
+$("#qList").addEventListener("pointermove", e => {
+  if (!drag) return;
+  drag.item.style.transform = `translateY(${e.clientY - drag.startY}px)`;
+  const items = $$(".q-item", $("#qList")).filter(x => x !== drag.item);
+  let to = items.length;
+  for (let i = 0; i < items.length; i++) { const r = items[i].getBoundingClientRect(); if (e.clientY < r.top + r.height / 2) { to = i; break; } }
+  drag.to = to;
+  items.forEach((x, i) => { x.classList.toggle("drop-before", i === to); x.classList.toggle("drop-after", to === items.length && i === items.length - 1); });
+});
+function endDrag() {
+  if (!drag) return;
+  const d = drag; drag = null;
+  d.item.classList.remove("dragging"); d.item.style.transform = "";
+  $$(".q-item").forEach(x => x.classList.remove("drop-before", "drop-after"));
+  const from = state.queue.findIndex(q => q.qid === d.qid);
+  if (d.to !== null && d.to !== from) send({ k: "qmove", qid: d.qid, to: d.to });
+}
+$("#qList").addEventListener("pointerup", endDrag);
+$("#qList").addEventListener("pointercancel", endDrag);
 $$(".fchip").forEach(b => b.onclick = () => {
   filter = b.dataset.f;
   $$(".fchip").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
@@ -1342,6 +1457,8 @@ function toggleFs() {
 }
 $("#fsBtn").onclick = toggleFs;
 $("#gestureBtn").onclick = resumeGesture;
+$("#gestureSkip").onclick = () => { $("#gesture").hidden = true; gestureNeeded = false; const n = sortedQueue()[0]; if (n) send({ k: "load", video: n, pos: n.start || 0, playing: true }); else send({ k: "pause", pos: expectedPos() }); };
+$("#adHoldGo").onclick = () => send({ k: "adClear" });
 
 $("#copyBtn").onclick = () => copy(inviteUrl(true), $("#copyBtn"));
 $("#inviteBtn").onclick = () => {

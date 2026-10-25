@@ -7,8 +7,8 @@
 <meta name="description" content="Videos und Streams mit Freunden synchron schauen.">
 <meta name="theme-color" content="#0b0f19">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
-<link rel="preload" href="fonts/material-symbols-subset.woff2?v=11" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=11">
+<link rel="preload" href="fonts/material-symbols-subset.woff2?v=12" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css?v=12">
 </head>
 <body>
 <div class="glow-bg" aria-hidden="true"></div>
@@ -114,7 +114,7 @@
           </div>
         </div>
         <div class="stack head-people" id="headPeople"></div>
-        <div class="voice-ctl" id="voiceCtl"></div>
+        <div class="voice-wrap"><div class="voice-ctl" id="voiceCtl"></div><div class="voice-menu panel" id="voiceMenu" hidden></div></div>
         <div class="share-pill">
           <span class="ms" style="color:var(--primary);font-size:16px">link</span>
           <span class="url" id="shareUrl">—</span>
@@ -141,7 +141,21 @@
             <p>Füge rechts einen YouTube-, Twitch-, TikTok- oder Reel-Link hinzu. Das erste Video startet automatisch für alle.</p>
           </div>
           <div class="gesture" id="gesture" hidden>
-            <button class="btn btn-primary" id="gestureBtn" type="button" style="min-height:52px;padding:0 24px"><span class="ms fill">play_arrow</span>Mitschauen</button>
+            <div class="gesture-box">
+              <button class="btn btn-primary" id="gestureBtn" type="button" style="min-height:52px;padding:0 24px"><span class="ms fill">play_arrow</span>Mitschauen</button>
+              <p class="muted">Startet trotzdem nicht? Altersbeschränkte Videos lassen sich nur direkt auf YouTube ansehen.</p>
+              <div class="row">
+                <a class="btn btn-ghost" id="gestureYt" href="#" target="_blank" rel="noopener" hidden><span class="ms">open_in_new</span>Auf YouTube öffnen</a>
+                <button class="btn btn-ghost" id="gestureSkip" type="button"><span class="ms">skip_next</span>Überspringen</button>
+              </div>
+            </div>
+          </div>
+          <div class="adhold" id="adHold" hidden>
+            <div class="gesture-box">
+              <span class="dot" aria-hidden="true"></span>
+              <p id="adHoldTxt" style="color:var(--text);font-weight:600">Warte auf Werbung …</p>
+              <button class="btn btn-ghost" id="adHoldGo" type="button"><span class="ms">play_arrow</span>Nicht warten</button>
+            </div>
           </div>
         </div>
         <div class="qual-menu panel" id="qualMenu" hidden role="menu" aria-label="Qualität"></div>
@@ -230,7 +244,7 @@
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
-<script src="config.js?v=11"></script>
-<script src="app.js?v=11"></script>
+<script src="config.js?v=12"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>
