@@ -729,7 +729,7 @@ setInterval(() => {
   $("#playBtn").setAttribute("aria-label", manual ? "Countdown für alle starten" : playing ? "Pausieren" : "Abspielen");
   // Klick-Schutz erst aktiv, wenn der Player einmal lief: so bleiben Altersabfragen
   // ("Start Watching" bei Twitch) und Einwilligungen im Player anklickbar
-  const shieldOn = !!(player && player.ready && player.started && !manual);
+  const shieldOn = !!(player && player.ready && player.started && !manual) && now() > shieldPauseUntil;
   $("#shield").style.pointerEvents = shieldOn ? "auto" : "none";
   $("#shield").classList.toggle("yt-hole", !!(player && player.kind === "yt"));
   if (!player || !player.ready || !state.video) { $("#timeTxt").textContent = "0:00 / 0:00"; setRange($("#seek"), 0); return; }
@@ -741,6 +741,16 @@ setInterval(() => {
 function setRange(el, v) { el.value = v; el.style.setProperty("--p", (v / el.max) * 100 + "%"); }
 
 
+// Klick ins YouTube-Menü (Zahnrad): Fokus wandert ins iframe → Klick-Schutz kurz aussetzen,
+// damit das Menü (Qualität, Geschwindigkeit, Untertitel) überall bedienbar ist
+let shieldPauseUntil = 0;
+window.addEventListener("blur", () => setTimeout(() => {
+  const a = document.activeElement;
+  if (a && a.tagName === "IFRAME" && $("#playerHost").contains(a)) shieldPauseUntil = now() + 20000;
+}, 0));
+window.addEventListener("focus", () => { shieldPauseUntil = 0; });
+$(".stage").addEventListener("mouseleave", () => { shieldPauseUntil = 0; });
+
 // Qualität: Twitch über die Player-API, YouTube über das eigene Zahnrad im Video
 // (YouTube hat das Setzen der Qualität per API abgeschafft)
 function openQuality() {
@@ -749,6 +759,7 @@ function openQuality() {
   if (!player || !player.ready) { toast("Erst ein Video starten."); return; }
   if (player.kind === "yt") {
     const st = $(".stage"); st.classList.add("show-gear");
+    shieldPauseUntil = now() + 20000;
     setTimeout(() => st.classList.remove("show-gear"), 4000);
     toast("Qualität: oben rechts im Video aufs Zahnrad klicken → Qualität", 4500);
     return;
