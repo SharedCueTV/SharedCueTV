@@ -706,7 +706,7 @@ function avatarHTML(p, cls = "") {
 }
 function renderHead() {
   $("#roomTitle").textContent = state.title || "Raum";
-  document.title = (state.title ? state.title + " · " : "") + "SharedCue";
+  document.title = (state.title ? state.title + " · " : "") + "SharedCueTV";
   const n = people.length;
   $("#roomSub").textContent = `${n} ${n === 1 ? "Person" : "Personen"} im Raum · Code ${room.code}` + (room.pw ? " · mit Passwort" : "");
   $("#liveTxt").textContent = `${n} ${n === 1 ? "Person" : "Freunde"} synchron`;
@@ -1252,7 +1252,7 @@ function leaveRoom() {
   store.sdel("sc_session");
   history.replaceState(null, "", location.pathname + location.search);
   $("#room").hidden = true; $("#lobby").hidden = false;
-  document.title = "SharedCue – Gemeinsam schauen";
+  document.title = "SharedCueTV – Gemeinsam schauen";
 }
 window.addEventListener("pagehide", () => { transport && transport.leave(); });
 

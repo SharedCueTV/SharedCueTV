@@ -1,4 +1,4 @@
-# SharedCue
+# SharedCueTV
 
 YouTube und Twitch mit Freunden synchron schauen – mit Warteschlange (Upvotes), Chat, Emoji-Reaktionen und optionalem Raum-Passwort.
 
