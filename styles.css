@@ -5,7 +5,7 @@
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 500; src: url(fonts/space-grotesk-latin-500-normal.woff2) format("woff2"); }
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 600; src: url(fonts/space-grotesk-latin-600-normal.woff2) format("woff2"); }
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 700; src: url(fonts/space-grotesk-latin-700-normal.woff2) format("woff2"); }
-@font-face { font-family: "Material Symbols Outlined"; font-style: normal; font-display: block; font-weight: 100 700; src: url(fonts/material-symbols-subset.woff2?v=18) format("woff2"); }
+@font-face { font-family: "Material Symbols Outlined"; font-style: normal; font-display: block; font-weight: 100 700; src: url(fonts/material-symbols-subset.woff2?v=19) format("woff2"); }
 :root {
   --bg: #0b0f19;
   --surface: #0f131d;
@@ -831,3 +831,22 @@ button.room-chip { max-width: 380px; }
 @media (max-width: 600px) { .rc-inv-txt { display: none; } .rc-invite { padding: 0 7px; } }
 
 button.room-chip.copied { border-color: #34d399; box-shadow: 0 0 0 1px #34d399; }
+
+/* ---------- Größere Kameras + Kinomodus mit Kameras ---------- */
+:root { --side-w: 300px; }
+body.has-cams { --side-w: clamp(340px, 27vw, 520px); }
+.layout { grid-template-columns: var(--side-w) minmax(0, 1fr) 340px; }
+.cam-tile .nm { font-size: 13px; }
+@media (max-width: 1280px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 320px; }
+  body.has-cams .sidebar { grid-template-columns: minmax(0, 1fr); }
+  body.has-cams .cam-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+}
+/* Kinomodus: Warteschlange/Chat weg, Kameras rechts neben dem Player */
+body.theater .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "main"; max-width: none; }
+body.theater.has-cams .layout { grid-template-columns: minmax(0, 1fr) clamp(300px, 24vw, 460px); grid-template-areas: "main side"; }
+body.theater.has-cams .sidebar { display: flex !important; position: sticky; top: 84px; max-height: calc(100vh - 104px); overflow-y: auto; }
+body.theater.has-cams .sidebar .roster, body.theater.has-cams .audio-card .ch-title { display: none; }
+body.theater .main { max-width: calc((100vh - 240px) * 1.7778); }
+@media (max-width: 960px) { body.theater.has-cams .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "main" "side"; } body.theater.has-cams .sidebar { position: static; max-height: none; } }
+.audio-card .voice-ctl { display: block; }

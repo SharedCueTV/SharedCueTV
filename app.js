@@ -1283,12 +1283,14 @@ function showCamTile(id, track, self) {
   if (!v.srcObject || v.srcObject.getVideoTracks()[0] !== track) v.srcObject = new MediaStream([track]);
   v.play().catch(() => {});
   strip.hidden = false;
+  document.body.classList.add("has-cams");
 }
 function removeCamTile(id) {
   const strip = $("#camStrip"); if (!strip) return;
   const t = strip.querySelector(`.cam-tile[data-uid="${CSS.escape(id)}"]`);
   if (t) { const v = t.querySelector("video"); if (v) v.srcObject = null; t.remove(); }
   strip.hidden = !strip.children.length;
+  document.body.classList.toggle("has-cams", !!strip.children.length);
   if (t) renderPeople();
 }
 const roomAllows = k => !state.settings || state.settings[k] !== false;
