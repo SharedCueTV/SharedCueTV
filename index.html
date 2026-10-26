@@ -18,8 +18,8 @@
 <meta property="og:url" content="https://sharedcuetv.github.io/SharedCueTV/">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://sharedcuetv.github.io/SharedCueTV/og-image.jpg">
-<link rel="preload" href="fonts/material-symbols-subset.woff2?v=17" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=17">
+<link rel="preload" href="fonts/material-symbols-subset.woff2?v=18" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css?v=18">
 </head>
 <body>
 <div class="glow-bg" aria-hidden="true"></div>
@@ -46,7 +46,7 @@
         <label for="cTitle">Raumname</label>
         <input id="cTitle" class="input" maxlength="48" placeholder="z. B. Filmabend">
       </div>
-      <div class="field">
+      <div class="field" hidden>
         <label for="cPass">Passwort (optional)</label>
         <input id="cPass" class="input" type="password" maxlength="64" placeholder="Leer lassen für keinen Schutz">
       </div>
@@ -67,7 +67,7 @@
         <label for="jCode">Raum-Code</label>
         <input id="jCode" class="input" maxlength="12" required placeholder="z. B. K7Q-4MX" style="text-transform: uppercase; font-family: var(--mono); letter-spacing: .08em">
       </div>
-      <div class="field">
+      <div class="field" hidden>
         <label for="jPass">Passwort</label>
         <input id="jPass" class="input" type="password" maxlength="64" placeholder="Nur falls der Raum eins hat">
       </div>
@@ -87,11 +87,10 @@
 <div id="room" hidden>
   <header class="topbar">
     <div class="brand"><img src="icon.svg" alt=""><span class="brand-name">Shared<span>Cue</span><b class="tv">TV</b></span></div>
-    <button class="room-chip" id="codeChip" type="button" title="Freunde einladen">
+    <button class="room-chip" id="codeChip" type="button" title="Klicken: Einladungslink kopieren">
       <span class="dot" id="liveDot"></span>
       <span class="rc-name" id="roomName">Raum</span>
       <span class="room-code"><span class="ms">tag</span><span id="codeLabel">—</span></span>
-      <span class="rc-invite"><span class="ms">person_add</span><span class="rc-inv-txt">Einladen</span></span>
       <span class="sr-only" id="liveTxt">verbinde …</span>
     </button>
     <form class="add-bar" id="qAdd" autocomplete="off">
@@ -307,7 +306,7 @@
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
-<script src="config.js?v=17"></script>
-<script src="app.js?v=17"></script>
+<script src="config.js?v=18"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

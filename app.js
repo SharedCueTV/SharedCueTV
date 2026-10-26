@@ -849,7 +849,7 @@ function renderHead() {
   const ma = $("#meAvatar"); ma.textContent = initials(me.name); ma.style.background = me.color;
   $("#meName").textContent = me.name;
   const url = inviteUrl(true);
-  $("#codeChip").title = "Freunde einladen · " + url.replace(/^https?:\/\//, "");
+  $("#codeChip").title = "Klicken: Einladungslink kopieren · " + url.replace(/^https?:\/\//, "");
   const hp = people.slice(0, 6).map(p => avatarHTML(p, p.id === me.id ? "me" : "")).join("");
   $("#headPeople").innerHTML = hp + (people.length > 6 ? `<span class="avatar" style="background:var(--c-highest)">+${people.length - 6}</span>` : "");
 }
@@ -1992,13 +1992,14 @@ $("#gestureBtn").onclick = resumeGesture;
 $("#gestureSkip").onclick = () => { $("#gesture").hidden = true; gestureNeeded = false; const n = sortedQueue()[0]; if (n) send({ k: "load", video: n, pos: n.start || 0, playing: true }); else send({ k: "pause", pos: expectedPos() }); };
 $("#adHoldGo").onclick = () => send({ k: "adClear" });
 
-$("#codeChip").onclick = () => {
-  $("#pwSwitchWrap").hidden = !room.pw;
-  $("#inviteCode").textContent = room.code;
-  $("#inviteLink").value = inviteUrl($("#pwInLink").checked);
-  $("#inviteModal").hidden = false;
-  $("#inviteCopy").focus();
-};
+$("#codeChip").onclick = () => copyInvite();
+async function copyInvite() {
+  const url = inviteUrl(true);
+  try { await navigator.clipboard.writeText(url); }
+  catch { const t = document.createElement("textarea"); t.value = url; document.body.appendChild(t); t.select(); try { document.execCommand("copy"); } catch {} t.remove(); }
+  toast("Einladungslink kopiert – jetzt einfach verschicken");
+  const c = $("#codeChip"); c.classList.add("copied"); setTimeout(() => c.classList.remove("copied"), 1200);
+}
 $("#pwInLink").onchange = () => $("#inviteLink").value = inviteUrl($("#pwInLink").checked);
 $("#inviteCopy").onclick = () => copy($("#inviteLink").value, $("#inviteCopy"));
 $("#inviteClose").onclick = () => $("#inviteModal").hidden = true;
