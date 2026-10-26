@@ -1774,6 +1774,19 @@ function poke() {
 }
 $(".stage").addEventListener("mousemove", poke);
 
+// Link-Leiste exakt mittig: beide Seiten so breit wie die breitere Seite
+(() => {
+  const tb = $(".topbar"), l = $(".top-left"), r = $(".top-actions");
+  if (!tb || !l || !r || !window.ResizeObserver) return;
+  const fit = () => {
+    const w = Math.ceil(Math.max(l.scrollWidth, r.scrollWidth)); if (!w) return;
+    const cs = getComputedStyle(tb), free = tb.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - 2 * parseFloat(cs.columnGap || 16) - 2 * w;
+    tb.classList.toggle("tb-tight", free < 420);   // zu eng: Leiste nimmt den Rest, nicht ganz mittig
+    tb.style.setProperty("--tb-side", w + "px");
+  };
+  const ro = new ResizeObserver(fit); [l, r, tb].forEach(e => ro.observe(e));
+  for (const c of l.children) ro.observe(c);
+})();
 // ---------------------------------------------------------------- Mikro-Hotkey
 let hkCapture = false;
 function hotkeyLabel(hk) {

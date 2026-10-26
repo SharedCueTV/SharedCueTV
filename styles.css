@@ -878,3 +878,13 @@ body.theater .main { max-width: calc((100vh - 240px) * 1.7778); }
 .hk-btn.capturing { box-shadow: 0 0 0 2px rgba(6,182,212,.7); color: #4cd7f6; }
 select.input { appearance: auto; }
 .mode-speaker .fs-tile:nth-of-type(2) { right: 200px; } .mode-speaker .fs-tile:nth-of-type(3) { right: 376px; } .mode-speaker .fs-tile:nth-of-type(4) { right: 552px; }
+
+/* Link-Leiste exakt mittig (v21) */
+.top-left { display: flex; align-items: center; gap: 16px; min-width: 0; }
+@media (min-width: 961px) {
+  .topbar { display: grid; grid-template-columns: var(--tb-side, 1fr) minmax(0, 640px) var(--tb-side, 1fr); justify-content: space-between; }
+  .top-left .room-chip { flex-shrink: 0; }
+  .topbar .add-bar { width: 100%; max-width: none; margin: 0; }
+  .topbar .top-actions { justify-self: end; }
+  .topbar.tb-tight { grid-template-columns: max-content minmax(0, 1fr) max-content; }
+}

@@ -18,8 +18,8 @@
 <meta property="og:url" content="https://sharedcuetv.github.io/SharedCueTV/">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://sharedcuetv.github.io/SharedCueTV/og-image.jpg">
-<link rel="preload" href="fonts/material-symbols-subset.woff2?v=20" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=20">
+<link rel="preload" href="fonts/material-symbols-subset.woff2?v=21" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css?v=21">
 </head>
 <body>
 <div class="glow-bg" aria-hidden="true"></div>
@@ -86,13 +86,14 @@
 <!-- ================= ROOM ================= -->
 <div id="room" hidden>
   <header class="topbar">
-    <div class="brand"><img src="icon.svg" alt=""><span class="brand-name">Shared<span>Cue</span><b class="tv">TV</b></span></div>
+    <div class="top-left"><div class="brand"><img src="icon.svg" alt=""><span class="brand-name">Shared<span>Cue</span><b class="tv">TV</b></span></div>
     <button class="room-chip" id="codeChip" type="button" title="Klicken: Einladungslink kopieren">
       <span class="dot" id="liveDot"></span>
       <span class="rc-name" id="roomName">Raum</span>
       <span class="room-code"><span class="ms">tag</span><span id="codeLabel">—</span></span>
       <span class="sr-only" id="liveTxt">verbinde …</span>
     </button>
+    </div>
     <form class="add-bar" id="qAdd" autocomplete="off">
       <span class="ms ab-ico" aria-hidden="true">search</span>
       <input id="qAddInput" class="input" placeholder="YouTube, Twitch, TikTok, Reel oder MP4/MP3 einfügen …" aria-label="Video-Link">
@@ -317,7 +318,7 @@
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
-<script src="config.js?v=20"></script>
-<script src="app.js?v=20"></script>
+<script src="config.js?v=21"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>
