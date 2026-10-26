@@ -5,7 +5,7 @@
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 500; src: url(fonts/space-grotesk-latin-500-normal.woff2) format("woff2"); }
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 600; src: url(fonts/space-grotesk-latin-600-normal.woff2) format("woff2"); }
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-display: swap; font-weight: 700; src: url(fonts/space-grotesk-latin-700-normal.woff2) format("woff2"); }
-@font-face { font-family: "Material Symbols Outlined"; font-style: normal; font-display: block; font-weight: 100 700; src: url(fonts/material-symbols-subset.woff2?v=16) format("woff2"); }
+@font-face { font-family: "Material Symbols Outlined"; font-style: normal; font-display: block; font-weight: 100 700; src: url(fonts/material-symbols-subset.woff2?v=17) format("woff2"); }
 :root {
   --bg: #0b0f19;
   --surface: #0f131d;
@@ -825,3 +825,7 @@ body.theater .glow-bg { background: #000; }
 .add-bar .ab-go .ms { font-size: 16px; }
 .add-bar .ab-icon .ms { font-size: 17px; }
 body.theater .main { width: 100%; max-width: calc((100vh - 240px) * 1.7778); margin: 0 auto; }
+.rc-invite { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border-radius: 8px; background: var(--grad); color: #fff; font: 600 12px/1 var(--body); box-shadow: var(--glow); }
+.rc-invite .ms { font-size: 15px; }
+button.room-chip { max-width: 380px; }
+@media (max-width: 600px) { .rc-inv-txt { display: none; } .rc-invite { padding: 0 7px; } }

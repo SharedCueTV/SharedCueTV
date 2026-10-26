@@ -849,7 +849,7 @@ function renderHead() {
   const ma = $("#meAvatar"); ma.textContent = initials(me.name); ma.style.background = me.color;
   $("#meName").textContent = me.name;
   const url = inviteUrl(true);
-  $("#codeChip").title = "Einladungslink kopieren: " + url.replace(/^https?:\/\//, "");
+  $("#codeChip").title = "Freunde einladen · " + url.replace(/^https?:\/\//, "");
   const hp = people.slice(0, 6).map(p => avatarHTML(p, p.id === me.id ? "me" : "")).join("");
   $("#headPeople").innerHTML = hp + (people.length > 6 ? `<span class="avatar" style="background:var(--c-highest)">+${people.length - 6}</span>` : "");
 }
@@ -1698,7 +1698,7 @@ function genCode() {
 }
 const normCode = c => { const s = String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); return s.length === 6 ? s.slice(0, 3) + "-" + s.slice(3) : s; };
 function inviteUrl(withPw) {
-  const base = location.href.split("#")[0];
+  const base = location.protocol === "file:" ? location.href.split("#")[0] : location.origin + location.pathname;
   return base + "#/r/" + room.code + (withPw && room.pw ? "?k=" + b64e(room.pw) : "");
 }
 
@@ -1992,8 +1992,7 @@ $("#gestureBtn").onclick = resumeGesture;
 $("#gestureSkip").onclick = () => { $("#gesture").hidden = true; gestureNeeded = false; const n = sortedQueue()[0]; if (n) send({ k: "load", video: n, pos: n.start || 0, playing: true }); else send({ k: "pause", pos: expectedPos() }); };
 $("#adHoldGo").onclick = () => send({ k: "adClear" });
 
-$("#codeChip").onclick = async () => { try { await navigator.clipboard.writeText(inviteUrl(true)); toast("Einladungslink kopiert"); } catch { $("#inviteBtn").click(); } };
-$("#inviteBtn").onclick = () => {
+$("#codeChip").onclick = () => {
   $("#pwSwitchWrap").hidden = !room.pw;
   $("#inviteCode").textContent = room.code;
   $("#inviteLink").value = inviteUrl($("#pwInLink").checked);
