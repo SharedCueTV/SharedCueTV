@@ -61,6 +61,8 @@ function parseMedia(raw) {
   if (!/^https?:\/\//i.test(s)) s = "https://" + s;
   let u; try { u = new URL(s); } catch { return null; }
   const host = u.hostname.replace(/^www\.|^m\./, "");
+  const ext = (u.pathname.match(/\.(mp4|m4v|webm|mov|ogv|mp3|m4a|aac|ogg|oga|wav|flac|opus)$/i) || [])[1];
+  if (ext) return { src: "file", ref: u.href, kind: /^(mp3|m4a|aac|ogg|oga|wav|flac|opus)$/i.test(ext) ? "audio" : "video", url: u.href };
   const tParam = u.searchParams.get("t") || u.searchParams.get("start") || "";
   const parseT = t => { if (!t) return 0; if (/^\d+$/.test(t)) return +t; const m = t.match(/(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; };
   const ytId = id => /^[\w-]{11}$/.test(id || "") ? id : null;
@@ -107,6 +109,13 @@ async function buildItem(media) {
     item.title = um ? `TikTok von @${um[1]}` : "TikTok-Video";
     return item;
   }
+  if (media.src === "file") {
+    item.kind = media.kind;
+    let fn = decodeURIComponent((new URL(media.url).pathname.split("/").pop() || "Datei")).replace(/\.[^.]+$/, "").replace(/[_+]+/g, " ");
+    item.title = fn.slice(0, 120) || (media.kind === "audio" ? "Audiodatei" : "Videodatei");
+    if (location.protocol === "https:" && /^http:/i.test(media.url)) item.warn = "http";
+    return item;
+  }
   if (media.src === "ig") {
     item.kind = media.kind;
     item.title = media.kind === "p" ? "Instagram-Beitrag" : "Instagram Reel";
@@ -130,11 +139,11 @@ async function buildItem(media) {
   }
   return item;
 }
-const srcLabel = s => ({ yt: "YouTube", twl: "Twitch Live", twv: "Twitch", tt: "TikTok", ig: "Instagram" })[s] || "Video";
+const srcLabel = s => ({ yt: "YouTube", twl: "Twitch Live", twv: "Twitch", tt: "TikTok", ig: "Instagram", file: "Datei", live: "Live geteilt" })[s] || "Video";
 const isTw = s => s === "twv" || s === "twl";
-const family = s => isTw(s) ? "tw" : (s === "tt" || s === "ig") ? "clips" : "yt";
-const SRC_ICON = { yt: "play_arrow", twv: "bolt", twl: "bolt", tt: "music_note", ig: "photo_camera" };
-const SRC_CLASS = { yt: "yt", twv: "tw", twl: "tw", tt: "tt", ig: "ig" };
+const family = s => isTw(s) ? "tw" : (s === "tt" || s === "ig") ? "clips" : s === "file" || s === "live" ? "files" : "yt";
+const SRC_ICON = { yt: "play_arrow", twv: "bolt", twl: "bolt", tt: "music_note", ig: "photo_camera", file: "movie", live: "screen_share" };
+const SRC_CLASS = { yt: "yt", twv: "tw", twl: "tw", tt: "tt", ig: "ig", file: "fl", live: "lv" };
 
 // ---------------------------------------------------------------- Transports
 class LocalTransport {
@@ -374,6 +383,88 @@ class InstaAdapter {
   destroy() { window.removeEventListener("resize", this.fit); this.host.innerHTML = ""; this.ready = false; }
 }
 
+// Direkte Mediendateien (MP4, WebM, MP3 …) per Link – normales <video>-Element
+class FileAdapter {
+  constructor(host, cb) { this.host = host; this.cb = cb; this.kind = "file"; this.live = false; }
+  async load(item, pos, playing) {
+    this.host.innerHTML = ""; this.ready = false; this.started = false;
+    const wrap = document.createElement("div");
+    wrap.className = "media-wrap" + (item.kind === "audio" ? " audio" : "");
+    wrap.innerHTML = item.kind === "audio" ? `<div class="audio-art"><span class="ms">music_note</span><b>${esc(item.title)}</b><div class="eq"><i></i><i></i><i></i><i></i><i></i></div></div>` : "";
+    const el = this.el = document.createElement("video");
+    el.playsInline = true; el.preload = "auto"; el.src = item.ref;
+    wrap.appendChild(el); this.host.appendChild(wrap);
+    el.addEventListener("ended", () => this.cb.ended());
+    el.addEventListener("playing", () => { this.started = true; wrap.classList.add("playing"); });
+    el.addEventListener("pause", () => wrap.classList.remove("playing"));
+    el.addEventListener("error", () => this.cb.error(item.warn === "http" ? "Unsichere http-Links blockiert der Browser – nimm einen https-Link." : "Die Datei lässt sich nicht abspielen (Link prüfen)."));
+    await new Promise(r => { el.addEventListener("loadedmetadata", r, { once: true }); setTimeout(r, 10000); });
+    this.ready = true; this.cb.volume(this);
+    if (pos > 0.5) el.currentTime = pos;
+    if (playing) el.play().catch(() => {});
+  }
+  play() { this.el && this.el.play().catch(() => {}); }
+  pause() { this.el && this.el.pause(); }
+  seek(t) { if (this.el) this.el.currentTime = Math.max(0, t); }
+  time() { return this.el ? this.el.currentTime || 0 : 0; }
+  duration() { return this.el && isFinite(this.el.duration) ? this.el.duration : 0; }
+  isPlaying() { return !!this.el && !this.el.paused && !this.el.ended; }
+  isBuffering() { return !!this.el && !this.el.paused && this.el.readyState < 3; }
+  setVolume(v, muted) { if (!this.el) return; this.el.volume = clamp(v / 100, 0, 1); this.el.muted = !!muted; }
+  rate() { return this.el ? this.el.playbackRate : 1; }
+  setRate(r) { if (this.el) this.el.playbackRate = r; }
+  destroy() { if (this.el) { this.el.pause(); this.el.removeAttribute("src"); this.el.load(); } this.host.innerHTML = ""; this.ready = false; }
+}
+
+// Live geteilt (Bildschirm oder eigene Datei): Der Teilende schickt per WebRTC an alle
+class LiveAdapter {
+  constructor(host, cb) { this.host = host; this.cb = cb; this.kind = "live"; }
+  async load(item) {
+    this.item = item; this.host.innerHTML = ""; this.started = true;
+    this.isFile = item.kind === "file";
+    this.live = !this.isFile;            // Bildschirm: kein Spulen
+    const mine = item.ref === me.id;
+    if (mine && bc.el) {
+      // Teilender: eigenes Dateielement sichtbar im Player
+      const wrap = document.createElement("div"); wrap.className = "media-wrap" + (bc.audioOnly ? " audio" : "");
+      if (bc.audioOnly) wrap.innerHTML = `<div class="audio-art"><span class="ms">music_note</span><b>${esc(item.title)}</b><div class="eq"><i></i><i></i><i></i><i></i><i></i></div></div>`;
+      wrap.appendChild(bc.el); this.host.appendChild(wrap); this.el = bc.el; this.local = true;
+    } else {
+      const wrap = document.createElement("div"); wrap.className = "media-wrap live-wait";
+      wrap.innerHTML = `<div class="live-note"><span class="dot" aria-hidden="true"></span><span>${mine ? "Du teilst deinen Bildschirm" : `Verbinde mit dem Stream von ${esc(item.byName || "?")} …`}</span></div>`;
+      const v = this.el = document.createElement("video");
+      v.playsInline = true; v.autoplay = true; if (mine) v.muted = true;
+      wrap.appendChild(v); this.host.appendChild(wrap); this.wrap = wrap;
+      if (mine && bc.stream) { v.srcObject = bc.stream; wrap.classList.remove("live-wait"); }
+      else if (!mine) liveWant(item.ref);
+    }
+    this.ready = true; this.cb.volume(this);
+  }
+  attach(stream) {
+    if (!this.el || this.local) return;
+    if (this.el.srcObject !== stream) this.el.srcObject = stream;
+    this.wrap && this.wrap.classList.remove("live-wait");
+    if (this.wrap) {
+      const audioOnly = !stream.getVideoTracks().length;
+      this.wrap.classList.toggle("audio", audioOnly); this.wrap.classList.toggle("playing", audioOnly);
+      const art = this.wrap.querySelector(".audio-art");
+      if (audioOnly && !art) this.wrap.insertAdjacentHTML("afterbegin", `<div class="audio-art"><span class="ms">music_note</span><b>${esc(this.item.title)}</b><div class="eq"><i></i><i></i><i></i><i></i><i></i></div></div>`);
+      if (!audioOnly && art) art.remove();
+    }
+    this.cb.volume(this);
+    this.el.play().catch(e => { if (e && e.name === "NotAllowedError" && this.cb.blocked) this.cb.blocked(); });
+  }
+  play() { if (this.local) this.el.play().catch(() => {}); else this.el && this.el.play().catch(() => {}); }
+  pause() { if (this.local) this.el.pause(); }
+  seek(t) { if (this.local) this.el.currentTime = Math.max(0, t); }
+  time() { return this.local ? this.el.currentTime || 0 : (this.isFile ? expectedPos() : 0); }
+  duration() { return this.local ? (isFinite(this.el.duration) ? this.el.duration : 0) : (this.item.dur || 0); }
+  isPlaying() { return this.local ? !this.el.paused : (this.isFile ? state.pb.playing : true); }
+  isBuffering() { return false; }
+  setVolume(v, muted) { if (!this.el || (this.item.ref === me.id && !this.local)) return; this.el.volume = clamp(v / 100, 0, 1); this.el.muted = !!muted; }
+  destroy() { if (!this.local && this.el) this.el.srcObject = null; if (this.local && this.el) this.el.pause(); this.host.innerHTML = ""; this.ready = false; if (this.item && this.item.ref !== me.id) liveClose(this.item.ref); }
+}
+
 // ---------------------------------------------------------------- State
 const CFG = window.SHAREDCUE_CONFIG || {};
 const HAS_SUPA = !!(CFG.supabaseUrl && CFG.supabaseKey);
@@ -413,7 +504,7 @@ const setPb = (playing, pos, rate = RATE()) => { state.pb = { playing, pos, at: 
 const leader = () => [...people].sort((a, b) => (a.joinedAt - b.joinedAt) || (a.id < b.id ? -1 : 1))[0];
 const isLeader = () => { const l = leader(); return !l || l.id === me.id; };
 const nameOf = id => (people.find(p => p.id === id) || {}).name;
-const vkey = v => v ? v.src + ":" + v.ref : "";
+const vkey = v => v ? v.src + ":" + (v.src === "live" ? v.qid : v.ref) : "";
 const score = it => Object.values(it.votes || {}).reduce((a, b) => a + b, 0);
 const sortedQueue = () => [...state.queue];
 const resortByVotes = () => { state.queue = [...state.queue].sort((a, b) => score(b) - score(a)); };
@@ -433,9 +524,11 @@ function applyOp(op, local) {
         ST().videos++;
         if (op.video.qid && !state.queue.some(q => q.qid === op.video.qid) && !op.prev && op.video.by === op.by) bump("added", op.video.byName);
       }
+      if (bc.active && !(op.video && op.video.src === "live" && op.video.ref === me.id)) stopBroadcast(true);
       state.video = op.video;
       setPb(op.playing !== false, op.pos || 0, 1);
       state.adWait = []; state.adHeld = false;
+      gestureNeeded = false; { const g = $("#gesture"); if (g) g.hidden = true; }
       if (player) { player.inAd = false; player.inAdSent = false; player._lt = null; player._adHits = 0; player.loadAt = now(); }
       hideUpNext();
       if (op.video && op.video.qid) state.queue = state.queue.filter(q => q.qid !== op.video.qid);
@@ -517,6 +610,7 @@ function applyOp(op, local) {
     }
     case "countdown": runCountdown(local ? "Du" : op.name); return;
     case "voice": voiceSignal(op, local); return;
+    case "live": liveSignal(op, local); return;
     case "title": state.title = op.title; break;
   }
   renderAll();
@@ -587,10 +681,10 @@ async function syncPlayer(force) {
   const key = vkey(v);
   if (key !== loadedKey) {
     loadedKey = key;
-    const want = isTw(v.src) ? "tw" : v.src === "tt" ? "tt" : v.src === "ig" ? "ig" : "yt";
-    if (player && player.kind !== want) { player.destroy(); player = null; }
+    const want = isTw(v.src) ? "tw" : v.src === "tt" ? "tt" : v.src === "ig" ? "ig" : v.src === "file" ? "file" : v.src === "live" ? "live" : "yt";
+    if (player && (player.kind !== want || want === "live" || want === "file")) { player.destroy(); player = null; }
     if (!player) {
-      const A = { yt: YTAdapter, tw: TwitchAdapter, tt: TikTokAdapter, ig: InstaAdapter }[want];
+      const A = { yt: YTAdapter, tw: TwitchAdapter, tt: TikTokAdapter, ig: InstaAdapter, file: FileAdapter, live: LiveAdapter }[want];
       player = new A(host(), playerCb);
     }
     $(".screen").classList.toggle("portrait", want === "tt" || want === "ig");
@@ -750,7 +844,7 @@ function renderHead() {
   $("#liveTxt").textContent = `${n} ${n === 1 ? "Person" : "Freunde"} synchron`;
   $("#codeLabel").textContent = room.code;
   const url = inviteUrl(true);
-  $("#shareUrl").textContent = url.replace(/^https?:\/\//, "");
+  $("#codeChip").title = "Einladungslink kopieren: " + url.replace(/^https?:\/\//, "");
   const hp = people.slice(0, 6).map(p => avatarHTML(p, p.id === me.id ? "me" : "")).join("");
   $("#headPeople").innerHTML = hp + (people.length > 6 ? `<span class="avatar" style="background:var(--c-highest)">+${people.length - 6}</span>` : "");
 }
@@ -769,7 +863,7 @@ function renderSource() {
   if (!v) { b.hidden = true; $("#driftBadge").hidden = true; $("#seek").disabled = true; return; }
   b.hidden = false;
   b.className = "sbadge " + SRC_CLASS[v.src];
-  b.innerHTML = `<span class="ms">${v.src === "yt" ? "smart_display" : SRC_ICON[v.src]}</span>${esc(srcLabel(v.src))}${v.src === "twl" ? " · LIVE" : ""}`;
+  b.innerHTML = `<span class="ms">${v.src === "yt" ? "smart_display" : SRC_ICON[v.src]}</span>${esc(v.src === "live" ? (v.kind === "file" ? "Datei geteilt" : "Bildschirm · LIVE") : srcLabel(v.src))}${v.src === "twl" ? " · LIVE" : ""}`;
   const noSeek = v.src === "twl" || v.src === "ig";
   $("#seek").disabled = noSeek;
   $("#back10").disabled = $("#fwd10").disabled = noSeek;
@@ -901,6 +995,9 @@ setInterval(() => {
   const manual = !!(player && player.manual);
   $("#playIcon").textContent = manual ? "timer" : playing ? "pause" : "play_arrow";
   $("#rateBtn").textContent = fmtRate(RATE());
+  const sharingScreen = bc.active && bc.stream && !bc.el;
+  $("#screenBtn").innerHTML = sharingScreen ? `<span class="ms">stop_screen_share</span>Teilen beenden` : `<span class="ms">screen_share</span>Bildschirm`;
+  $("#screenBtn").classList.toggle("danger-btn", !!sharingScreen);
   $("#rateBtn").hidden = !(player && player.setRate);
   $("#playBtn").setAttribute("aria-label", manual ? "Countdown für alle starten" : playing ? "Pausieren" : "Abspielen");
   // Klick-Schutz erst aktiv, wenn der Player einmal lief: so bleiben Altersabfragen
@@ -1365,6 +1462,143 @@ function renderStats() {
     <h4>Reaktions-Könige</h4>${topList(s.react, "")}
     <p class="muted" style="font-size:12px;margin:8px 0 0">Die Statistik gilt für diesen Raum (Code ${esc(room.code)}) und bleibt in euren Browsern gespeichert.</p>`;
 }
+
+// ---------------------------------------------------------------- Live teilen (Bildschirm / eigene Datei)
+const bc = { active: false, stream: null, el: null, url: null, audioOnly: false, peers: new Map() };  // als Teilender
+const viewerPeers = new Map();  // als Zuschauer: sharerId → pc
+function liveSend(t, extra) { send({ k: "live", t, ...extra }); }
+async function startScreen() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) { toast("Bildschirm teilen geht nur am PC (Chrome, Edge, Firefox)."); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30 } }, audio: true }); }
+  catch { return; }
+  beginBroadcast(stream, { kind: "screen", title: `Bildschirm von ${me.name}` });
+  stream.getVideoTracks()[0].addEventListener("ended", () => endBroadcast());
+}
+async function startFile(file) {
+  if (!file) return;
+  const isAudio = /^audio\//.test(file.type) || /\.(mp3|m4a|aac|ogg|wav|flac|opus)$/i.test(file.name);
+  const el = document.createElement("video");
+  el.playsInline = true; el.preload = "auto";
+  const url = URL.createObjectURL(file);
+  el.src = url;
+  try { await new Promise((res, rej) => { el.onloadedmetadata = res; el.onerror = rej; setTimeout(rej, 15000); }); }
+  catch { URL.revokeObjectURL(url); toast("Diese Datei kann dein Browser nicht abspielen (MP4/WebM/MP3 gehen am besten)."); return; }
+  const cap = el.captureStream || el.mozCaptureStream;
+  if (!cap) { URL.revokeObjectURL(url); toast("Dein Browser kann Dateien nicht teilen – nimm Chrome oder Edge."); return; }
+  const stream = cap.call(el);
+  bc.el = el; bc.url = url; bc.audioOnly = isAudio;
+  el.addEventListener("ended", () => { if (state.video && state.video.src === "live" && state.video.ref === me.id) playNext(vkey(state.video), true); });
+  // neue Spuren (z. B. nach dem ersten Abspielen) an alle Zuschauer nachreichen
+  stream.addEventListener("addtrack", e => { for (const pc of bc.peers.values()) try { pc.addTrack(e.track, stream); } catch {} });
+  beginBroadcast(stream, { kind: "file", title: file.name.replace(/\.[^.]+$/, ""), dur: isFinite(el.duration) ? el.duration : 0 });
+}
+function beginBroadcast(stream, info) {
+  if (bc.active) stopBroadcast(true);
+  bc.active = true; bc.stream = stream;
+  const item = { qid: uid(8), src: "live", ref: me.id, kind: info.kind, title: info.title, dur: info.dur || 0, by: me.id, byName: me.name, votes: {}, at: now(), thumb: "" };
+  send({ k: "load", video: item, pos: 0, playing: true });
+  toast(info.kind === "screen" ? "Du teilst jetzt deinen Bildschirm" : "Du spielst die Datei für alle ab", 3000);
+}
+function endBroadcast() {
+  if (!bc.active) return;
+  const mine = state.video && state.video.src === "live" && state.video.ref === me.id;
+  stopBroadcast(true);
+  if (mine) { const n = sortedQueue()[0]; send({ k: "load", video: n || null, pos: n ? n.start || 0 : 0, playing: !!n }); }
+}
+function stopBroadcast(silent) {
+  bc.active = false;
+  for (const pc of bc.peers.values()) try { pc.close(); } catch {}
+  bc.peers.clear();
+  if (bc.stream) bc.stream.getTracks().forEach(t => { if (!bc.el) t.stop(); });
+  if (bc.el) { bc.el.pause(); bc.el.removeAttribute("src"); }
+  if (bc.url) URL.revokeObjectURL(bc.url);
+  bc.stream = null; bc.el = null; bc.url = null;
+  if (!silent) liveSend("stop", {});
+}
+function liveWant(sharer) { liveSend("want", { to: sharer }); }
+function liveClose(sharer) { const pc = viewerPeers.get(sharer); if (pc) { try { pc.close(); } catch {} viewerPeers.delete(sharer); } }
+async function liveSignal(op, local) {
+  if (local || op.to !== me.id) return;
+  const from = op.by;
+  if (op.t === "want") {
+    if (!bc.active || !bc.stream) return;
+    const old = bc.peers.get(from); if (old) try { old.close(); } catch {}
+    const pc = new RTCPeerConnection({ iceServers: ICE });
+    bc.peers.set(from, pc);
+    bc.stream.getTracks().forEach(t => pc.addTrack(t, bc.stream));
+    pc.onicecandidate = e => { if (e.candidate) liveSend("sig", { to: from, cand: e.candidate.toJSON() }); };
+    pc.onnegotiationneeded = async () => { try { await pc.setLocalDescription(); liveSend("sig", { to: from, desc: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } }); } catch (e) { console.warn("live offer", e); } };
+    // Bildqualität fürs Teilen etwas anheben
+    for (const snd of pc.getSenders()) if (snd.track && snd.track.kind === "video") { try { const pr = snd.getParameters(); pr.encodings = [{ ...(pr.encodings && pr.encodings[0]), maxBitrate: 2500000 }]; snd.setParameters(pr); } catch {} }
+    return;
+  }
+  if (op.t === "sig") {
+    // Antwort/Kandidaten an den Teilenden …
+    if (bc.peers.has(from)) {
+      const pc = bc.peers.get(from);
+      try { if (op.desc) await pc.setRemoteDescription(op.desc); else if (op.cand) await pc.addIceCandidate(op.cand); } catch (e) { console.warn("live sig", e); }
+      return;
+    }
+    // … oder als Zuschauer vom Teilenden
+    let pc = viewerPeers.get(from);
+    if (!pc) {
+      pc = new RTCPeerConnection({ iceServers: ICE });
+      viewerPeers.set(from, pc); pc._cands = [];
+      const ms = new MediaStream();
+      pc.ontrack = e => { ms.addTrack(e.track); if (player && player.kind === "live" && player.attach) player.attach(ms); };
+      pc.onicecandidate = e => { if (e.candidate) liveSend("sig", { to: from, cand: e.candidate.toJSON() }); };
+    }
+    try {
+      if (op.desc) {
+        await pc.setRemoteDescription(op.desc);
+        for (const c of pc._cands.splice(0)) await pc.addIceCandidate(c).catch(() => {});
+        if (op.desc.type === "offer") { await pc.setLocalDescription(); liveSend("sig", { to: from, desc: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } }); }
+      } else if (op.cand) {
+        if (pc.remoteDescription) await pc.addIceCandidate(op.cand).catch(() => {}); else pc._cands.push(op.cand);
+      }
+    } catch (e) { console.warn("live view", e); }
+  }
+}
+$("#screenBtn").onclick = () => { if (bc.active && bc.stream && !bc.el) endBroadcast(); else startScreen(); };
+$("#fileBtn").onclick = () => $("#fileInput").click();
+$("#fileInput").onchange = e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; startFile(f); };
+if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) $("#screenBtn").hidden = true;
+
+// ---------------------------------------------------------------- Zufallsnamen
+const NAME_ADJ = ["Flinker", "Müder", "Wilder", "Lässiger", "Chaotischer", "Hungriger", "Cooler", "Schläfriger", "Kichernder", "Mutiger", "Neugieriger", "Gemütlicher", "Verpeilter", "Funkelnder", "Grummeliger", "Tanzender", "Geheimer", "Fluffiger", "Epischer", "Sonniger"];
+const NAME_NOUN = ["Fuchs", "Pinguin", "Otter", "Waschbär", "Dachs", "Biber", "Igel", "Koala", "Panda", "Hamster", "Uhu", "Elch", "Lemur", "Tukan", "Gecko", "Yeti", "Kaktus", "Toast", "Keks", "Nacho", "Popcorn-Bär", "Kraken"];
+function randomName() {
+  const r = n => Math.floor(Math.random() * n);
+  for (let i = 0; i < 10; i++) { const n = `${NAME_ADJ[r(NAME_ADJ.length)]} ${NAME_NOUN[r(NAME_NOUN.length)]}`; if (n.length <= 24) return n; }
+  return "Popcorn-Bär";
+}
+$$("[data-dice]").forEach(b => b.onclick = () => {
+  const inp = $("#" + b.dataset.dice); inp.value = randomName();
+  b.classList.remove("roll"); void b.offsetWidth; b.classList.add("roll");
+  inp.focus();
+});
+
+// ---------------------------------------------------------------- Einstiegs-Animation
+let fxStart = 0;
+function playEnterFx(code, creating) {
+  const fx = $("#enterFx");
+  fx.classList.remove("open", "done"); fx.hidden = false;
+  $("#fxTxt").textContent = creating ? "Raum wird erstellt …" : "Betrete Raum …";
+  const box = $("#fxCode"); box.innerHTML = "";
+  [...code].forEach((ch, i) => { const s = document.createElement("span"); s.textContent = ch; s.style.animationDelay = (0.15 + i * 0.07) + "s"; box.appendChild(s); });
+  fxStart = now();
+}
+function finishEnterFx(ok) {
+  const fx = $("#enterFx"); if (fx.hidden) return;
+  const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const wait = Math.max(0, (reduce ? 300 : 1500) - (now() - fxStart));
+  setTimeout(() => {
+    $("#fxTxt").textContent = ok ? "Los geht's!" : "Verbinde weiter im Hintergrund …";
+    fx.classList.add("open");
+    setTimeout(() => { fx.classList.add("done"); fx.hidden = true; }, reduce ? 200 : 900);
+  }, wait);
+}
 // ---------------------------------------------------------------- Room lifecycle
 function genCode() {
   const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -1379,7 +1613,8 @@ function inviteUrl(withPw) {
 }
 
 async function enterRoom({ name, code, pw, title, creating, settings }) {
-  name = name.trim().slice(0, 24) || "Gast";
+  name = name.trim().slice(0, 24) || randomName();
+  playEnterFx(code, creating);
   store.set("sc_name", name);
   const id = store.sget("sc_id", null) || uid(12);
   store.sset("sc_id", id);
@@ -1387,7 +1622,7 @@ async function enterRoom({ name, code, pw, title, creating, settings }) {
   const channel = (await sha256(code + "\u0000" + (pw || ""))).slice(0, 32);
   room = { code, pw: pw || "", channel };
   state = freshState();
-  if (creating) { state.title = (title || "").trim() || `${name}s Raum`; state.settings = settings || { voice: true, cam: true }; }
+  if (creating) { state.title = (title || "").trim() || `Raum von ${name}`; state.settings = settings || { voice: true, cam: true }; }
   synced = !!creating;
   people = [me]; sysMsgs = [];
   store.sset("sc_session", { code, pw: room.pw, name });
@@ -1407,17 +1642,19 @@ async function enterRoom({ name, code, pw, title, creating, settings }) {
     people = list;
     const after = new Set(list.map(p => p.id));
     for (const p of list) if (!before.has(p.id) && p.id !== me.id) sys(`${p.name} ist beigetreten`);
-    for (const id of before) if (!after.has(id) && id !== me.id) { sys(`${(prevPeople.get(id) || {}).name || "Jemand"} hat den Raum verlassen`); voice.members.delete(id); closePeer(id); if ((state.adWait || []).some(x => x.id === id)) { state.adWait = state.adWait.filter(x => x.id !== id); releaseAdHold(); } }
+    for (const id of before) if (!after.has(id) && id !== me.id) { sys(`${(prevPeople.get(id) || {}).name || "Jemand"} hat den Raum verlassen`); voice.members.delete(id); closePeer(id); if (bc.peers.has(id)) { try { bc.peers.get(id).close(); } catch {} bc.peers.delete(id); } if (state.video && state.video.src === "live" && state.video.ref === id) { state.video = null; renderAll(); syncPlayer(true); } if ((state.adWait || []).some(x => x.id === id)) { state.adWait = state.adWait.filter(x => x.id !== id); releaseAdHold(); } }
     prevPeople = new Map(list.map(p => [p.id, p]));
     renderHead(); renderPeople();
   });
   try {
     await transport.connect(channel, me);
   } catch (e) {
+    finishEnterFx(false);
     toast("Verbindung fehlgeschlagen – ich versuche es weiter.", 5000);
     onStatus("offline");
     return;
   }
+  finishEnterFx(true);
   if (!synced) requestSnapshot(0);
 }
 let prevPeople = new Map();
@@ -1442,6 +1679,8 @@ function setLive(on, txt) {
 }
 function leaveRoom() {
   saveStats(); pollSel = null;
+  if (bc.active) endBroadcast();
+  for (const id of [...viewerPeers.keys()]) liveClose(id);
   voiceLeave(); hideUpNext(); clearTimeout(reconnectT); offlineSince = 0;
   voice.members.clear();
   transport && transport.leave(); transport = null;
@@ -1544,7 +1783,6 @@ $("#formJoin").addEventListener("submit", e => {
   enterRoom({ name: $("#jName").value, code, pw: $("#jPass").value, creating: false });
 });
 
-$("#topAdd").addEventListener("submit", e => { e.preventDefault(); addLink($("#topAddInput").value, $("#topAddInput")); });
 $("#qAdd").addEventListener("submit", e => { e.preventDefault(); addLink($("#qAddInput").value, $("#qAddInput")); });
 $("#chatForm").addEventListener("submit", e => { e.preventDefault(); sendChat($("#chatInput").value); $("#chatInput").value = ""; });
 
@@ -1664,7 +1902,7 @@ $("#gestureBtn").onclick = resumeGesture;
 $("#gestureSkip").onclick = () => { $("#gesture").hidden = true; gestureNeeded = false; const n = sortedQueue()[0]; if (n) send({ k: "load", video: n, pos: n.start || 0, playing: true }); else send({ k: "pause", pos: expectedPos() }); };
 $("#adHoldGo").onclick = () => send({ k: "adClear" });
 
-$("#copyBtn").onclick = () => copy(inviteUrl(true), $("#copyBtn"));
+$("#codeChip").onclick = async () => { try { await navigator.clipboard.writeText(inviteUrl(true)); toast("Einladungslink kopiert"); } catch { $("#inviteBtn").click(); } };
 $("#inviteBtn").onclick = () => {
   $("#pwSwitchWrap").hidden = !room.pw;
   $("#inviteCode").textContent = room.code;

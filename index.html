@@ -18,8 +18,8 @@
 <meta property="og:url" content="https://sharedcuetv.github.io/SharedCueTV/">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://sharedcuetv.github.io/SharedCueTV/og-image.jpg">
-<link rel="preload" href="fonts/material-symbols-subset.woff2?v=14" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=14">
+<link rel="preload" href="fonts/material-symbols-subset.woff2?v=15" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css?v=15">
 </head>
 <body>
 <div class="glow-bg" aria-hidden="true"></div>
@@ -40,7 +40,7 @@
     <form id="formCreate" class="form" role="tabpanel" aria-labelledby="tabCreate" autocomplete="off">
       <div class="field">
         <label for="cName">Dein Name</label>
-        <input id="cName" class="input" maxlength="24" required placeholder="z. B. Kevin">
+        <div class="name-row"><input id="cName" class="input" maxlength="24" required placeholder="z. B. Kevin"><button class="icon-btn dice" type="button" data-dice="cName" aria-label="Zufälligen Namen würfeln" title="Zufallsname"><span class="ms">casino</span></button></div>
       </div>
       <div class="field">
         <label for="cTitle">Raumname</label>
@@ -61,7 +61,7 @@
     <form id="formJoin" class="form" role="tabpanel" aria-labelledby="tabJoin" autocomplete="off" hidden>
       <div class="field">
         <label for="jName">Dein Name</label>
-        <input id="jName" class="input" maxlength="24" required placeholder="z. B. Lisa">
+        <div class="name-row"><input id="jName" class="input" maxlength="24" required placeholder="z. B. Lisa"><button class="icon-btn dice" type="button" data-dice="jName" aria-label="Zufälligen Namen würfeln" title="Zufallsname"><span class="ms">casino</span></button></div>
       </div>
       <div class="field">
         <label for="jCode">Raum-Code</label>
@@ -87,16 +87,10 @@
 <div id="room" hidden>
   <header class="topbar">
     <div class="brand"><img src="icon.svg" alt=""><span class="brand-name">Shared<span>Cue</span><b class="tv">TV</b></span></div>
-    <div class="room-chip">
+    <button class="room-chip" id="codeChip" type="button" title="Einladungslink kopieren">
       <span class="room-code"><span class="ms">tag</span><span id="codeLabel">—</span></span>
       <span class="sync-live"><span class="dot" id="liveDot"></span><span class="txt" id="liveTxt">verbinde …</span></span>
-    </div>
-    <form class="add-bar" id="topAdd" autocomplete="off">
-      <span class="ms">search</span>
-      <label class="sr" for="topAddInput" hidden>Video-Link</label>
-      <input id="topAddInput" class="input" placeholder="YouTube-, Twitch-, TikTok- oder Reel-Link …" aria-label="Video-Link">
-      <button class="btn btn-ghost" type="submit"><span class="ms" style="position:static;font-size:16px;color:var(--primary)">playlist_add</span>Queue</button>
-    </form>
+    </button>
     <div class="spacer"></div>
     <button class="btn btn-primary" id="inviteBtn" type="button"><span class="ms">person_add</span><span class="invite-txt">Freunde einladen</span></button>
     <button class="icon-btn" id="leaveBtn" type="button" aria-label="Raum verlassen" title="Raum verlassen"><span class="ms">logout</span></button>
@@ -133,11 +127,6 @@
         </div>
         <div class="stack head-people" id="headPeople"></div>
         <div class="voice-wrap"><div class="voice-ctl" id="voiceCtl"></div><div class="voice-menu panel" id="voiceMenu" hidden></div></div>
-        <div class="share-pill">
-          <span class="ms" style="color:var(--primary);font-size:16px">link</span>
-          <span class="url" id="shareUrl">—</span>
-          <button class="btn" id="copyBtn" type="button">Kopieren</button>
-        </div>
       </section>
 
       <section class="stage" aria-label="Player">
@@ -224,7 +213,7 @@
       <section class="panel rpanel" id="paneQueue" role="tabpanel" aria-labelledby="rtQueue">
         <span class="label-sm muted">Video oder Stream einreichen</span>
         <form class="add-row" id="qAdd" autocomplete="off">
-          <input class="input" id="qAddInput" placeholder="YouTube, Twitch, TikTok oder Reel" aria-label="Video-Link">
+          <input class="input" id="qAddInput" placeholder="Link: YouTube, Twitch, TikTok, Reel, MP4/MP3" aria-label="Video-Link">
           <button class="btn btn-primary" type="submit" style="min-height:42px"><span class="ms">add</span>Hinzufügen</button>
         </form>
         <div class="filters" role="group" aria-label="Filter">
@@ -232,6 +221,12 @@
           <button class="fchip" data-f="yt" aria-pressed="false">YouTube</button>
           <button class="fchip" data-f="tw" aria-pressed="false">Twitch</button>
           <button class="fchip" data-f="clips" aria-pressed="false">TikTok &amp; Reels</button>
+          <button class="fchip" data-f="files" aria-pressed="false">Dateien</button>
+        </div>
+        <div class="src-row">
+          <button class="btn btn-ghost" type="button" id="fileBtn" title="Eigene MP4-/MP3-Datei für alle abspielen"><span class="ms">upload_file</span>Datei</button>
+          <button class="btn btn-ghost" type="button" id="screenBtn" title="Bildschirm oder Tab für alle streamen"><span class="ms">screen_share</span>Bildschirm</button>
+          <input type="file" id="fileInput" accept="video/*,audio/*" hidden>
         </div>
         <div class="poll-bar" id="pollBar"></div>
         <div class="notice" id="qNotice" hidden><span class="ms">celebration</span><span id="qNoticeTxt"></span></div>
@@ -287,9 +282,19 @@
   </div>
 </div>
 
+<div class="enter-fx" id="enterFx" hidden aria-hidden="true">
+  <div class="fx-curtain l"></div><div class="fx-curtain r"></div>
+  <div class="fx-core">
+    <div class="fx-rings"><i></i><i></i><i></i></div>
+    <img src="icon.svg" alt="" class="fx-logo">
+    <div class="fx-code" id="fxCode"></div>
+    <div class="fx-txt" id="fxTxt">Betrete Raum …</div>
+  </div>
+</div>
+
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
-<script src="config.js?v=14"></script>
-<script src="app.js?v=14"></script>
+<script src="config.js?v=15"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>
