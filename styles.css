@@ -891,3 +891,6 @@ select.input { appearance: auto; }
 
 /* v22 */
 #settingsModal .modal { max-height: calc(100vh - 32px); overflow-y: auto; }
+
+/* v25: zweiter Balken = für alle geladen */
+.scrub input[type=range] { background: linear-gradient(to right, #22d3ee 0%, #6366f1 var(--p, 0%), rgba(203,213,225,.6) var(--p, 0%), rgba(203,213,225,.6) max(var(--p, 0%), var(--b, 0%)), var(--slate8) max(var(--p, 0%), var(--b, 0%)), var(--slate8) 100%); }

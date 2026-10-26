@@ -642,6 +642,7 @@ function applyOp(op, local) {
     case "voice": voiceSignal(op, local); return;
     case "live": liveSignal(op, local); return;
     case "fx": fxSignal(op, local); return;
+    case "buf": bufInfo.set(op.by, { v: op.v, end: +op.end || 0, at: now() }); return;
     case "title": state.title = String(op.title || "").slice(0, 48) || state.title; break;
     case "settings": state.settings = { voice: op.settings.voice !== false, cam: op.settings.voice !== false && op.settings.cam !== false, fsCams: FS_MODES[op.settings.fsCams] ? op.settings.fsCams : fsMode() }; renderFsCams(); if (!local) actorToast(`${actor} hat die Raum-Einstellungen geändert`); if (!roomAllows("cam") && voice.cam) camToggle(); break;
     case "qclear": state.queue = []; if (!local) actorToast(`${actor} hat die Warteschlange geleert`); break;
@@ -1086,7 +1087,49 @@ setInterval(() => {
   if (player.live) { $("#timeTxt").textContent = "● LIVE"; setRange($("#seek"), 1000); return; }
   const d = player.duration(), t = player.time();
   if (!seeking) { setRange($("#seek"), d ? (t / d) * 1000 : 0); $("#timeTxt").textContent = `${fmt(t)} / ${fmt(d)}`; }
+  // zweiter Balken: so weit ist das Video bei ALLEN geladen (der Langsamste zählt)
+  const g = d ? groupLoaded() : null, sk = $("#seek");
+  if (g) {
+    sk.style.setProperty("--b", clamp(g.end / d * 100, 0, 100) + "%");
+    sk.parentElement.title = g.end >= d - 1 ? "Komplett geladen – läuft ohne Stocken" : `Für alle geladen bis ${fmt(g.end)}` + (g.who && g.who !== me.name ? ` (am langsamsten: ${g.who})` : "");
+  } else { sk.style.setProperty("--b", "0%"); sk.parentElement.title = ""; }
 }, 250);
+
+// ---------------------------------------------------------------- Ladebalken
+const bufInfo = new Map();   // personId → {v, end, at}
+// Wie weit ist das aktuelle Video bei mir ab der aktuellen Stelle geladen (Sekunden)?
+function loadedEnd() {
+  if (!player || !player.ready || player.live || player.manual) return null;
+  if (player.kind === "yt") { const f = player.p.getVideoLoadedFraction ? player.p.getVideoLoadedFraction() : 0; return f * player.duration(); }
+  if (player.kind === "file" && player.el) {
+    const el = player.el, b = el.buffered, t = el.currentTime;
+    if (player.item && player.item.p2p && player.item.p2p.owner === me.id) return player.duration();   // liegt bei mir komplett
+    for (let i = 0; i < b.length; i++) if (b.start(i) <= t + 0.5 && b.end(i) >= t) return b.end(i);
+    return t;
+  }
+  return null;
+}
+function groupLoaded() {
+  const v = vkey(state.video), mine = loadedEnd();
+  if (mine == null) return null;
+  let end = mine, who = me.name;
+  for (const p of people) {
+    if (p.id === me.id) continue;
+    const b = bufInfo.get(p.id);
+    if (!b || b.v !== v || now() - b.at > 12000) continue;
+    if (b.end < end) { end = b.end; who = p.name; }
+  }
+  return { end, who };
+}
+let bufSent = { v: "", end: -99, at: 0 };
+setInterval(() => {
+  if (!room || !synced || !state.video || people.length < 2) return;
+  const e = loadedEnd(); if (e == null) return;
+  const v = vkey(state.video);
+  if (v === bufSent.v && Math.abs(e - bufSent.end) < 2 && now() - bufSent.at < 6000) return;
+  bufSent = { v, end: e, at: now() };
+  send({ k: "buf", v, end: +e.toFixed(1) });
+}, 2000);
 function setRange(el, v) { el.value = v; el.style.setProperty("--p", (v / el.max) * 100 + "%"); }
 
 
