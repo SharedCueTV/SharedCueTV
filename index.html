@@ -18,8 +18,8 @@
 <meta property="og:url" content="https://sharedcuetv.github.io/SharedCueTV/">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://sharedcuetv.github.io/SharedCueTV/og-image.jpg">
-<link rel="preload" href="fonts/material-symbols-subset.woff2?v=19" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=19">
+<link rel="preload" href="fonts/material-symbols-subset.woff2?v=20" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css?v=20">
 </head>
 <body>
 <div class="glow-bg" aria-hidden="true"></div>
@@ -146,6 +146,7 @@
           <div class="stage-title" id="stageTitle" hidden><span>Aktuelle Wiedergabe</span><b id="stageTitleTxt"></b></div>
           <div class="mini-chat" id="miniChat" hidden aria-hidden="true"><div class="mc-head"><i></i>Chat live</div><div class="mc-body" id="miniChatBody"></div></div>
           <div class="reactions-layer" id="reactLayer"></div>
+          <div class="fs-cams" id="fsCams" hidden></div>
           <div class="countdown" id="countdown" hidden aria-live="assertive"></div>
           <div class="upnext panel" id="upNext" hidden aria-live="polite"></div>
           <div class="center-flash" id="centerFlash"><span class="ms fill" id="centerIcon">pause</span></div>
@@ -255,7 +256,17 @@
       <label class="switch"><input type="checkbox" id="setVoice"> Sprachchat</label>
       <label class="switch"><input type="checkbox" id="setCam"> Webcams (im Sprachchat)</label>
     </fieldset>
-    <p class="muted" style="margin:0;font-size:12px">Änderungen gelten sofort für alle im Raum.</p>
+    <div class="field"><label for="setFs">Kameras im Vollbild</label>
+      <select id="setFs" class="input">
+        <option value="rail">Leiste rechts (blendet sich aus)</option>
+        <option value="pip">Frei verschiebbar (Bild-im-Bild)</option>
+        <option value="speaker">Nur wer gerade spricht</option>
+        <option value="off">Keine Kameras</option>
+      </select></div>
+    <p class="muted" style="margin:0;font-size:12px">Raum-Einstellungen gelten sofort für alle im Raum.</p>
+    <div class="field"><label for="setHotkey">Mein Mikro-Hotkey <span class="muted" style="font-weight:400">(nur für dich)</span></label>
+      <button type="button" id="setHotkey" class="input hk-btn">Nicht festgelegt</button>
+      <span class="muted" style="font-size:12px">Klicken, dann Taste(n) drücken. Funktioniert, solange der SharedCueTV-Tab im Vordergrund ist.</span></div>
     <div class="row" style="justify-content:flex-end"><button class="btn btn-ghost" id="setCancel" type="button">Abbrechen</button><button class="btn btn-primary" id="setSave" type="button">Speichern</button></div>
   </div>
 </div>
@@ -306,7 +317,7 @@
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
-<script src="config.js?v=19"></script>
-<script src="app.js?v=19"></script>
+<script src="config.js?v=20"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>

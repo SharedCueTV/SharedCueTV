@@ -612,7 +612,7 @@ function applyOp(op, local) {
     case "voice": voiceSignal(op, local); return;
     case "live": liveSignal(op, local); return;
     case "title": state.title = String(op.title || "").slice(0, 48) || state.title; break;
-    case "settings": state.settings = { voice: op.settings.voice !== false, cam: op.settings.voice !== false && op.settings.cam !== false }; if (!local) actorToast(`${actor} hat die Raum-Einstellungen geändert`); if (!roomAllows("cam") && voice.cam) camToggle(); break;
+    case "settings": state.settings = { voice: op.settings.voice !== false, cam: op.settings.voice !== false && op.settings.cam !== false, fsCams: FS_MODES[op.settings.fsCams] ? op.settings.fsCams : fsMode() }; renderFsCams(); if (!local) actorToast(`${actor} hat die Raum-Einstellungen geändert`); if (!roomAllows("cam") && voice.cam) camToggle(); break;
     case "qclear": state.queue = []; if (!local) actorToast(`${actor} hat die Warteschlange geleert`); break;
   }
   renderAll();
@@ -1284,6 +1284,7 @@ function showCamTile(id, track, self) {
   v.play().catch(() => {});
   strip.hidden = false;
   document.body.classList.add("has-cams");
+  renderFsCams();
 }
 function removeCamTile(id) {
   const strip = $("#camStrip"); if (!strip) return;
@@ -1291,7 +1292,7 @@ function removeCamTile(id) {
   if (t) { const v = t.querySelector("video"); if (v) v.srcObject = null; t.remove(); }
   strip.hidden = !strip.children.length;
   document.body.classList.toggle("has-cams", !!strip.children.length);
-  if (t) renderPeople();
+  if (t) { renderPeople(); renderFsCams(); }
 }
 const roomAllows = k => !state.settings || state.settings[k] !== false;
 function addMeter(id, stream) {
@@ -1315,6 +1316,8 @@ setInterval(() => {
   }
   $$(".avatar[data-uid]").forEach(a => a.classList.toggle("speaking", voice.speaking.has(a.dataset.uid)));
   $$(".cam-tile").forEach(t => t.classList.toggle("speaking", voice.speaking.has(t.dataset.uid)));
+  for (const id of voice.speaking) lastSpoke.set(id, now());
+  if (fsActive()) updateFsSpeaking();
 }, 200);
 function renderVoice() {
   const box = $("#voiceCtl"); if (!box) return;
@@ -1672,6 +1675,8 @@ $("#meBtn").onclick = e => { e.stopPropagation(); const m = $("#meMenu"); m.hidd
 document.addEventListener("click", e => { if (!e.target.closest("#meMenu")) $("#meMenu").hidden = true; });
 $("#settingsBtn").onclick = () => {
   $("#setName").value = state.title || "";
+  $("#setFs").value = fsMode();
+  hkCapture = false; renderHotkeyBtn();
   $("#setVoice").checked = roomAllows("voice"); $("#setCam").checked = roomAllows("cam"); $("#setCam").disabled = !$("#setVoice").checked;
   $("#settingsModal").hidden = false; $("#setName").focus();
 };
@@ -1681,8 +1686,9 @@ $("#settingsModal").addEventListener("click", e => { if (e.target.id === "settin
 $("#setSave").onclick = () => {
   const t = $("#setName").value.trim();
   if (t && t !== state.title) send({ k: "title", title: t });
-  const ns = { voice: $("#setVoice").checked, cam: $("#setVoice").checked && $("#setCam").checked };
-  if (ns.voice !== roomAllows("voice") || ns.cam !== roomAllows("cam")) send({ k: "settings", settings: ns });
+  const ns = { voice: $("#setVoice").checked, cam: $("#setVoice").checked && $("#setCam").checked, fsCams: $("#setFs").value };
+  if (ns.voice !== roomAllows("voice") || ns.cam !== roomAllows("cam") || ns.fsCams !== fsMode()) send({ k: "settings", settings: ns });
+  hkCapture = false;
   $("#settingsModal").hidden = true;
   toast("Gespeichert");
 };
@@ -1691,6 +1697,96 @@ $("#theaterBtn").onclick = () => {
   document.body.classList.toggle("theater");
   $("#theaterBtn").classList.toggle("live", document.body.classList.contains("theater"));
 };
+
+// ---------------------------------------------------------------- Kameras im Vollbild
+const FS_MODES = { rail: "Leiste rechts", pip: "Frei verschiebbar", speaker: "Nur wer spricht", off: "Keine Kameras" };
+const fsMode = () => (state.settings && FS_MODES[state.settings.fsCams]) ? state.settings.fsCams : "rail";
+const lastSpoke = new Map();
+const fsActive = () => document.fullscreenElement === $(".stage");
+let fsIdleT = null;
+function renderFsCams() {
+  const box = $("#fsCams"); if (!box) return;
+  const mode = fsMode();
+  if (box.dataset.mode !== mode) { box.innerHTML = ""; box.dataset.mode = mode; }
+  box.className = "fs-cams mode-" + mode + (store.get("sc_fs_rail_closed", false) ? " closed" : "");
+  if (!fsActive() || mode === "off") { box.innerHTML = ""; box.hidden = true; return; }
+  const tiles = $$(".cam-tile", $("#camStrip"));
+  box.hidden = !tiles.length;
+  const have = new Set();
+  tiles.forEach((t, i) => {
+    const id = t.dataset.uid; have.add(id);
+    let f = box.querySelector(`.fs-tile[data-uid="${CSS.escape(id)}"]`);
+    if (!f) {
+      f = document.createElement("div"); f.className = "fs-tile" + (t.classList.contains("self") ? " self" : ""); f.dataset.uid = id;
+      f.innerHTML = `<video autoplay playsinline muted></video><span class="nm">${esc(t.querySelector(".nm").textContent)}</span>`;
+      box.appendChild(f);
+      if (mode === "pip") placePip(f, i);
+    }
+    const src = t.querySelector("video").srcObject, v = f.querySelector("video");
+    if (v.srcObject !== src) { v.srcObject = src; v.play().catch(() => {}); }
+  });
+  $$(".fs-tile", box).forEach(f => { if (!have.has(f.dataset.uid)) f.remove(); });
+  if (mode === "rail" && tiles.length && !box.querySelector(".fs-toggle")) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "fs-toggle"; b.title = "Kameras ein-/ausklappen"; b.setAttribute("aria-label", b.title);
+    b.innerHTML = `<span class="ms">videocam</span>`;
+    b.onclick = e => { e.stopPropagation(); store.set("sc_fs_rail_closed", !store.get("sc_fs_rail_closed", false)); renderFsCams(); };
+    box.prepend(b);
+  }
+  updateFsSpeaking();
+}
+function updateFsSpeaking() {
+  const box = $("#fsCams"); if (!box || box.hidden) return;
+  const speakerMode = fsMode() === "speaker";
+  $$(".fs-tile", box).forEach(f => {
+    const id = f.dataset.uid, talking = voice.speaking.has(id);
+    f.classList.toggle("speaking", talking);
+    if (speakerMode) f.classList.toggle("show", talking || now() - (lastSpoke.get(id) || 0) < 2000);
+  });
+}
+// B) frei verschiebbare Kacheln – Position wird pro Person gemerkt
+function placePip(f, i) {
+  const pos = store.get("sc_pip_" + f.dataset.uid, null);
+  if (pos) { f.style.left = pos.x + "%"; f.style.top = pos.y + "%"; }
+  else { f.style.right = "16px"; f.style.bottom = (90 + i * 180) + "px"; }
+  f.addEventListener("pointerdown", e => {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const box = $("#fsCams").getBoundingClientRect(), r = f.getBoundingClientRect();
+    const dx = e.clientX - r.left, dy = e.clientY - r.top;
+    f.setPointerCapture(e.pointerId); f.classList.add("dragging");
+    const move = ev => {
+      const x = clamp(ev.clientX - box.left - dx, 0, box.width - r.width), y = clamp(ev.clientY - box.top - dy, 0, box.height - r.height);
+      f.style.right = f.style.bottom = "auto"; f.style.left = (x / box.width * 100) + "%"; f.style.top = (y / box.height * 100) + "%";
+    };
+    const up = () => {
+      f.releasePointerCapture(e.pointerId); f.classList.remove("dragging");
+      f.removeEventListener("pointermove", move); f.removeEventListener("pointerup", up);
+      if (f.style.left) store.set("sc_pip_" + f.dataset.uid, { x: parseFloat(f.style.left), y: parseFloat(f.style.top) });
+    };
+    f.addEventListener("pointermove", move); f.addEventListener("pointerup", up);
+  });
+}
+document.addEventListener("fullscreenchange", () => { $("#fsCams").innerHTML = ""; renderFsCams(); poke(); });
+// Leiste blendet sich nach 3 s ohne Maus halb aus
+function poke() {
+  const st = $(".stage"); st.classList.remove("idle");
+  clearTimeout(fsIdleT); fsIdleT = setTimeout(() => { if (fsActive()) st.classList.add("idle"); }, 3000);
+}
+$(".stage").addEventListener("mousemove", poke);
+
+// ---------------------------------------------------------------- Mikro-Hotkey
+let hkCapture = false;
+function hotkeyLabel(hk) {
+  if (!hk) return "Nicht festgelegt";
+  const k = hk.code.replace(/^Key/, "").replace(/^Digit/, "").replace(/^Numpad/, "Num ").replace("Backquote", "^").replace("Space", "Leertaste");
+  return [hk.ctrl && "Strg", hk.alt && "Alt", hk.shift && "Shift", hk.meta && "Cmd", k].filter(Boolean).join(" + ");
+}
+function renderHotkeyBtn() {
+  const b = $("#setHotkey"); if (!b) return;
+  b.textContent = hkCapture ? "Taste drücken … (Esc = abbrechen, Entf = löschen)" : hotkeyLabel(store.get("sc_mic_hotkey", null));
+  b.classList.toggle("capturing", hkCapture);
+}
+$("#setHotkey").onclick = () => { hkCapture = !hkCapture; renderHotkeyBtn(); };
 // ---------------------------------------------------------------- Room lifecycle
 function genCode() {
   const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -2019,6 +2115,27 @@ async function copy(text, btn) {
 
 document.addEventListener("keydown", e => {
   if (!room) { return; }
+  if (hkCapture) {
+    if (["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
+    e.preventDefault(); e.stopPropagation();
+    if (e.key === "Escape") { hkCapture = false; renderHotkeyBtn(); return; }
+    if (e.key === "Backspace" || e.key === "Delete") { store.set("sc_mic_hotkey", null); hkCapture = false; renderHotkeyBtn(); toast("Mikro-Hotkey entfernt"); return; }
+    const hk = { code: e.code, ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey };
+    if (!hk.ctrl && !hk.alt && !hk.meta && ["Space", "KeyK", "KeyJ", "KeyL", "KeyF", "ArrowLeft", "ArrowRight"].includes(hk.code)) { toast("Diese Taste ist schon belegt (Play/Spulen/Vollbild)."); return; }
+    store.set("sc_mic_hotkey", hk); hkCapture = false; renderHotkeyBtn(); toast("Mikro-Hotkey: " + hotkeyLabel(hk));
+    return;
+  }
+  const hk = store.get("sc_mic_hotkey", null);
+  if (hk && e.code === hk.code && e.ctrlKey === !!hk.ctrl && e.altKey === !!hk.alt && e.shiftKey === !!hk.shift && e.metaKey === !!hk.meta) {
+    const t = (e.target.tagName || "").toLowerCase();
+    const typing = t === "input" || t === "textarea" || e.target.isContentEditable;
+    if (!typing || hk.ctrl || hk.alt || hk.meta) {
+      e.preventDefault();
+      if (!voice.on) toast("Du bist nicht im Sprachchat.");
+      else { voiceToggleMute(); toast(voice.muted ? "Mikro aus" : "Mikro an", 1200); }
+      return;
+    }
+  }
   if (e.key === "Escape") { $("#inviteModal").hidden = true; $("#settingsModal").hidden = true; $("#extModal").hidden = true; $("#meMenu").hidden = true; return; }
   const tag = (e.target.tagName || "").toLowerCase();
   if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;

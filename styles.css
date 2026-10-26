@@ -850,3 +850,31 @@ body.theater.has-cams .sidebar .roster, body.theater.has-cams .audio-card .ch-ti
 body.theater .main { max-width: calc((100vh - 240px) * 1.7778); }
 @media (max-width: 960px) { body.theater.has-cams .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "main" "side"; } body.theater.has-cams .sidebar { position: static; max-height: none; } }
 .audio-card .voice-ctl { display: block; }
+
+/* ---- Kameras im Vollbild (v20) ---- */
+.fs-cams { display: none; }
+.stage:fullscreen .fs-cams:not([hidden]) { display: block; position: absolute; inset: 0; pointer-events: none; z-index: 30; }
+.fs-tile { position: absolute; overflow: hidden; border-radius: 14px; background: #000; border: 2px solid rgba(255,255,255,.12); box-shadow: 0 8px 30px rgba(0,0,0,.5); pointer-events: auto; transition: opacity .4s, border-color .2s, box-shadow .2s; }
+.fs-tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fs-tile.self video { transform: scaleX(-1); }
+.fs-tile .nm { position: absolute; left: 8px; bottom: 6px; font: 600 12px/1.2 Inter, sans-serif; color: #fff; text-shadow: 0 1px 3px #000; }
+.fs-tile.speaking { border-color: #4cd7f6; box-shadow: 0 0 0 3px rgba(76,215,246,.35), 0 8px 30px rgba(0,0,0,.5); opacity: 1 !important; }
+/* A) Leiste */
+.mode-rail .fs-tile { position: relative; width: 240px; aspect-ratio: 4/3; margin: 0 0 10px auto; }
+.stage:fullscreen .mode-rail:not([hidden]) { left: auto; right: 16px; top: 16px; bottom: 90px; width: 240px; overflow-y: auto; scrollbar-width: none; }
+.stage.idle .mode-rail .fs-tile { opacity: .45; }
+.mode-rail.closed .fs-tile { display: none; }
+.fs-toggle { pointer-events: auto; display: block; margin: 0 0 10px auto; width: 36px; height: 36px; border-radius: 50%; border: 0; cursor: pointer; color: #fff; background: rgba(15,20,32,.75); }
+.mode-rail.closed .fs-toggle { background: linear-gradient(135deg,#06b6d4,#6366f1); }
+.stage.idle .fs-toggle { opacity: .4; }
+/* B) Bild-im-Bild */
+.mode-pip .fs-tile { width: 220px; aspect-ratio: 4/3; cursor: grab; touch-action: none; }
+.mode-pip .fs-tile.dragging { cursor: grabbing; opacity: .9; }
+/* C) Nur wer spricht */
+.mode-speaker .fs-tile { right: 24px; bottom: 90px; width: 160px; height: 160px; border-radius: 50%; opacity: 0; transform: scale(.85); transition: opacity .35s, transform .35s; pointer-events: none; }
+.mode-speaker .fs-tile.show { opacity: 1; transform: none; }
+.mode-speaker .fs-tile .nm { left: 0; right: 0; text-align: center; bottom: 14px; }
+.hk-btn { text-align: left; cursor: pointer; font-family: ui-monospace, monospace; }
+.hk-btn.capturing { box-shadow: 0 0 0 2px rgba(6,182,212,.7); color: #4cd7f6; }
+select.input { appearance: auto; }
+.mode-speaker .fs-tile:nth-of-type(2) { right: 200px; } .mode-speaker .fs-tile:nth-of-type(3) { right: 376px; } .mode-speaker .fs-tile:nth-of-type(4) { right: 552px; }
