@@ -18,8 +18,8 @@
 <meta property="og:url" content="https://sharedcuetv.github.io/SharedCueTV/">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://sharedcuetv.github.io/SharedCueTV/og-image.jpg">
-<link rel="preload" href="fonts/material-symbols-subset.woff2?v=21" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=21">
+<link rel="preload" href="fonts/material-symbols-subset.woff2?v=22" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css?v=22">
 </head>
 <body>
 <div class="glow-bg" aria-hidden="true"></div>
@@ -102,7 +102,7 @@
         <button class="ab-icon" type="button" id="screenBtn" title="Bildschirm teilen" aria-label="Bildschirm teilen"><span class="ms">screen_share</span></button>
         <button class="ab-go" type="submit"><span class="ms">add</span><span class="ab-go-txt">Hinzufügen</span></button>
       </div>
-      <input type="file" id="fileInput" accept="video/*,audio/*" hidden>
+      <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mov,.m4v,.webm,.mp4,.mp3,.m4a,.aac,.flac,.wav,.ogg,.opus" hidden>
     </form>
     <div class="top-actions">
       <button class="icon-btn sq" id="settingsBtn" type="button" aria-label="Raum-Einstellungen" title="Raum-Einstellungen"><span class="ms">settings</span></button>
@@ -268,6 +268,13 @@
     <div class="field"><label for="setHotkey">Mein Mikro-Hotkey <span class="muted" style="font-weight:400">(nur für dich)</span></label>
       <button type="button" id="setHotkey" class="input hk-btn">Nicht festgelegt</button>
       <span class="muted" style="font-size:12px">Klicken, dann Taste(n) drücken. Funktioniert, solange der SharedCueTV-Tab im Vordergrund ist.</span></div>
+    <div class="field"><label for="setShareQ">Qualität, wenn ich Dateien/Bildschirm teile <span class="muted" style="font-weight:400">(nur für dich)</span></label>
+      <select id="setShareQ" class="input">
+        <option value="auto">1080p · flüssig (empfohlen)</option>
+        <option value="720">720p · für langsames Internet</option>
+        <option value="max">Original-Auflösung · braucht viel Upload</option>
+      </select>
+      <span class="muted" style="font-size:12px">Jeder Zuschauer bekommt einen eigenen Stream von deinem PC – bei 1080p ca. 6 Mbit/s Upload pro Person.</span></div>
     <div class="row" style="justify-content:flex-end"><button class="btn btn-ghost" id="setCancel" type="button">Abbrechen</button><button class="btn btn-primary" id="setSave" type="button">Speichern</button></div>
   </div>
 </div>
@@ -318,7 +325,7 @@
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
-<script src="config.js?v=21"></script>
-<script src="app.js?v=21"></script>
+<script src="config.js?v=22"></script>
+<script src="app.js?v=22"></script>
 </body>
 </html>

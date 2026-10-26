@@ -61,7 +61,7 @@ function parseMedia(raw) {
   if (!/^https?:\/\//i.test(s)) s = "https://" + s;
   let u; try { u = new URL(s); } catch { return null; }
   const host = u.hostname.replace(/^www\.|^m\./, "");
-  const ext = (u.pathname.match(/\.(mp4|m4v|webm|mov|ogv|mp3|m4a|aac|ogg|oga|wav|flac|opus)$/i) || [])[1];
+  const ext = (u.pathname.match(/\.(mp4|m4v|webm|mkv|mov|ogv|mp3|m4a|aac|ogg|oga|wav|flac|opus)$/i) || [])[1];
   if (ext) return { src: "file", ref: u.href, kind: /^(mp3|m4a|aac|ogg|oga|wav|flac|opus)$/i.test(ext) ? "audio" : "video", url: u.href };
   const tParam = u.searchParams.get("t") || u.searchParams.get("start") || "";
   const parseT = t => { if (!t) return 0; if (/^\d+$/.test(t)) return +t; const m = t.match(/(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/); return m ? (+m[1] || 0) * 3600 + (+m[2] || 0) * 60 + (+m[3] || 0) : 0; };
@@ -239,7 +239,7 @@ class YTAdapter {
   async load(ref, pos, playing) {
     await loadYT();
     this.ref = ref;
-    this.started = false;
+    this.started = false; this.ccDone = false; this.loadAt = this.cmdAt = now();
     if (this.p && this.ready) {
       if (playing) this.p.loadVideoById({ videoId: ref, startSeconds: pos });
       else this.p.cueVideoById({ videoId: ref, startSeconds: pos });
@@ -251,19 +251,25 @@ class YTAdapter {
     await new Promise(resolve => {
       this.p = new YT.Player(el.id, {
         width: "100%", height: "100%", videoId: ref,
-        playerVars: { autoplay: playing ? 1 : 0, controls: 1, disablekb: 1, modestbranding: 1, rel: 0, playsinline: 1, iv_load_policy: 3, fs: 0, start: Math.floor(pos), origin: location.origin && location.origin !== "null" ? location.origin : undefined },
+        playerVars: { autoplay: playing ? 1 : 0, controls: 1, disablekb: 0, cc_load_policy: 0, modestbranding: 1, rel: 0, playsinline: 1, iv_load_policy: 3, fs: 0, start: Math.floor(pos), origin: location.origin && location.origin !== "null" ? location.origin : undefined },
         events: {
           onReady: () => { this.ready = true; this.cb.volume(this); if (pos) this.p.seekTo(pos, true); if (playing) this.p.playVideo(); resolve(); },
-          onStateChange: e => { if (e.data === 1) this.started = true; if (e.data === 0) this.cb.ended(); },
+          onStateChange: e => {
+            if (e.data === 1) { this.started = true; if (!this.ccDone) { this.ccDone = true; this.captionsOff(); } }
+            if (e.data === 0) this.cb.ended();
+            this.cb.native && this.cb.native(this, e.data);
+          },
           onPlaybackRateChange: e => { if (Math.abs(e.data - (this.setRateTo || 1)) > 0.01) this.cb.rate(e.data); },
           onError: e => this.cb.error(e.data === 101 || e.data === 150 ? "Dieses Video läuft nur direkt auf YouTube (Einbetten gesperrt oder Altersbeschränkung)." : e.data === 100 ? "Video nicht gefunden oder privat." : "YouTube-Fehler " + e.data)
         }
       });
     });
   }
-  play() { this.ready && this.p.playVideo(); }
-  pause() { this.ready && this.p.pauseVideo(); }
-  seek(t) { this.ready && this.p.seekTo(t, true); }
+  play() { if (!this.ready) return; this.cmdAt = now(); this.p.playVideo(); }
+  pause() { if (!this.ready) return; this.cmdAt = now(); this.p.pauseVideo(); }
+  seek(t) { if (!this.ready) return; this.cmdAt = now(); this.p.seekTo(t, true); }
+  // Untertitel starten immer aus – wer sie will, schaltet sie im Player ein (gilt dann für dieses Video)
+  captionsOff() { try { this.p.unloadModule("captions"); } catch {} try { this.p.unloadModule("cc"); } catch {} }
   time() { return this.ready && this.p.getCurrentTime ? this.p.getCurrentTime() || 0 : 0; }
   duration() { return this.ready && this.p.getDuration ? this.p.getDuration() || 0 : 0; }
   isPlaying() { return this.ready && this.p.getPlayerState && this.p.getPlayerState() === 1; }
@@ -440,8 +446,14 @@ class LiveAdapter {
     }
     this.ready = true; this.cb.volume(this);
   }
+  waiting(txt) {
+    if (!this.wrap || this.gotMedia && !txt) return;
+    this.gotMedia = false; this.wrap.classList.add("live-wait");
+    const s = this.wrap.querySelector(".live-note span:last-child"); if (s && txt) s.textContent = txt;
+  }
   attach(stream) {
     if (!this.el || this.local) return;
+    this.gotMedia = true;
     if (this.el.srcObject !== stream) this.el.srcObject = stream;
     this.wrap && this.wrap.classList.remove("live-wait");
     if (this.wrap) {
@@ -665,6 +677,19 @@ const playerCb = {
     send({ k: "rate", rate: r, pos: curPos() });
   },
   blocked() { if (state.pb.playing) showGesture(); },
+  // Play/Pause direkt im YouTube-Player → für alle übernehmen
+  native(p, st) {
+    if (p !== player || !state.video || p.inAd || loadedKey !== vkey(state.video)) return;
+    if (now() - p.cmdAt < 1200 || now() - (p.loadAt || 0) < 2500) return;   // war unser eigener Befehl
+    if (st === 2 && state.pb.playing) {
+      const d = p.duration(), t = p.time();
+      if (d && t >= d - 1) return;
+      send({ k: "pause", pos: t });
+    } else if (st === 1 && !state.pb.playing) {
+      if (gestureNeeded) { gestureNeeded = false; $("#gesture").hidden = true; }
+      send({ k: "play", pos: p.time() });
+    }
+  },
   error(msg) {
     toast(msg, 4000);
     if (isLeader() && state.video) { const k = vkey(state.video); setTimeout(() => playNext(k), 3000); }
@@ -806,6 +831,18 @@ function resumeGesture() {
   gestureNeeded = false; $("#gesture").hidden = true;
   if (player && player.ready && !player.manual) { playerCb.volume(player); player.seek(expectedPos()); player.play(); }
 }
+
+// Spulen direkt in der YouTube-Zeitleiste erkennen: Zeit springt plötzlich weg, obwohl wir nichts gesteuert haben
+setInterval(() => {
+  const p = player;
+  if (!room || !synced || !p || p.kind !== "yt" || !p.ready || p.inAd || !state.video || loadedKey !== vkey(state.video)) { if (p) p._sd = null; return; }
+  const st = p.p.getPlayerState ? p.p.getPlayerState() : -1;
+  if (st !== 1 && st !== 2 && st !== 3) { p._sd = null; return; }
+  const diff = p.time() - expectedPos();
+  const quiet = now() - p.cmdAt > 1500 && now() - lastCorrection > 1500 && now() - (p.loadAt || 0) > 3000;
+  if (quiet && p._sd != null && Math.abs(p._sd) < 1.2 && Math.abs(diff) > 2.5) { p._sd = null; send({ k: "seek", pos: p.time() }); return; }
+  p._sd = diff;
+}, 400);
 
 // Leader-Tick + Drift-Schleife
 setInterval(() => {
@@ -1019,9 +1056,8 @@ setInterval(() => {
   $("#playBtn").setAttribute("aria-label", manual ? "Countdown für alle starten" : playing ? "Pausieren" : "Abspielen");
   // Klick-Schutz erst aktiv, wenn der Player einmal lief: so bleiben Altersabfragen
   // ("Start Watching" bei Twitch) und Einwilligungen im Player anklickbar
-  const shieldOn = !!(player && player.ready && player.started && !manual) && now() > shieldPauseUntil;
+  const shieldOn = !!(player && player.ready && player.started && !manual && player.kind !== "yt") && now() > shieldPauseUntil;
   $("#shield").style.pointerEvents = shieldOn ? "auto" : "none";
-  $("#shield").classList.toggle("yt-hole", !!(player && player.kind === "yt"));
   if (!player || !player.ready || !state.video) { $("#timeTxt").textContent = "0:00 / 0:00"; setRange($("#seek"), 0); return; }
   if (manual) { $("#timeTxt").textContent = "Instagram · per Countdown"; setRange($("#seek"), 0); return; }
   if (player.live) { $("#timeTxt").textContent = "● LIVE"; setRange($("#seek"), 1000); return; }
@@ -1048,10 +1084,7 @@ function openQuality() {
   if (!menu.hidden && menu.dataset.kind === "qual") { menu.hidden = true; return; }
   if (!player || !player.ready) { toast("Erst ein Video starten."); return; }
   if (player.kind === "yt") {
-    const st = $(".stage"); st.classList.add("show-gear");
-    shieldPauseUntil = now() + 20000;
-    setTimeout(() => st.classList.remove("show-gear"), 4000);
-    toast("Qualität: oben rechts im Video aufs Zahnrad klicken → Qualität", 4500);
+    toast("Qualität, Untertitel & Co.: einfach im YouTube-Player aufs Zahnrad klicken (Maus übers Video bewegen).", 5000);
     return;
   }
   if (player.kind === "tw" && player.qualities) {
@@ -1525,6 +1558,34 @@ function renderStats() {
 const bc = { active: false, stream: null, el: null, url: null, audioOnly: false, peers: new Map() };  // als Teilender
 const viewerPeers = new Map();  // als Zuschauer: sharerId → pc
 function liveSend(t, extra) { send({ k: "live", t, ...extra }); }
+// Qualität beim Teilen (persönlich): Ziel-Höhe, Bitrate je Zuschauer, max. Bilder/s
+const SHARE_Q = { "720": { h: 720, br: 3000000, fps: 30 }, auto: { h: 1080, br: 6000000, fps: 30 }, max: { h: 4320, br: 12000000, fps: 60 } };
+const shareQ = () => SHARE_Q[store.get("sc_share_q", "auto")] || SHARE_Q.auto;
+function applyShareQuality(pc) {
+  const q = shareQ();
+  for (const snd of pc.getSenders()) {
+    if (!snd.track || snd.track.kind !== "video") continue;
+    try {
+      const pr = snd.getParameters();
+      if (!pr.encodings || !pr.encodings.length) continue;
+      const h = (bc.el && bc.el.videoHeight) || snd.track.getSettings().height || 1080;
+      pr.encodings[0].maxBitrate = q.br;
+      pr.encodings[0].maxFramerate = q.fps;
+      pr.encodings[0].scaleResolutionDownBy = Math.max(1, h / q.h);
+      pr.degradationPreference = "maintain-framerate";   // lieber kurz unschärfer als ruckeln
+      snd.setParameters(pr).catch(() => {});
+    } catch {}
+  }
+}
+// H.264 bevorzugen: wird meist von der Grafikkarte kodiert → weniger CPU-Last, flüssiger
+function preferH264(pc) {
+  try {
+    const caps = RTCRtpSender.getCapabilities && RTCRtpSender.getCapabilities("video");
+    if (!caps) return;
+    const codecs = [...caps.codecs].sort((a, b) => (/h264/i.test(b.mimeType) ? 1 : 0) - (/h264/i.test(a.mimeType) ? 1 : 0));
+    for (const tr of pc.getTransceivers()) if (tr.sender && tr.sender.track && tr.sender.track.kind === "video" && tr.setCodecPreferences) tr.setCodecPreferences(codecs);
+  } catch {}
+}
 async function startScreen() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) { toast("Bildschirm teilen geht nur am PC (Chrome, Edge, Firefox)."); return; }
   let stream;
@@ -1535,20 +1596,26 @@ async function startScreen() {
 }
 async function startFile(file) {
   if (!file) return;
-  const isAudio = /^audio\//.test(file.type) || /\.(mp3|m4a|aac|ogg|wav|flac|opus)$/i.test(file.name);
+  const isAudio = /^audio\//.test(file.type) || /\.(mp3|m4a|aac|ogg|oga|wav|flac|opus|weba)$/i.test(file.name);
   const el = document.createElement("video");
   el.playsInline = true; el.preload = "auto";
   const url = URL.createObjectURL(file);
   el.src = url;
   try { await new Promise((res, rej) => { el.onloadedmetadata = res; el.onerror = rej; setTimeout(rej, 15000); }); }
-  catch { URL.revokeObjectURL(url); toast("Diese Datei kann dein Browser nicht abspielen (MP4/WebM/MP3 gehen am besten)."); return; }
+  catch { URL.revokeObjectURL(url); toast("Diese Datei kann dein Browser nicht abspielen. Am sichersten: MP4 (H.264 + AAC). Umwandeln geht z. B. mit HandBrake.", 7000); return; }
+  if (!isAudio && !el.videoWidth) { URL.revokeObjectURL(url); toast("Das Bildformat dieser Datei kann dein Browser nicht abspielen (z. B. H.265/HEVC oder AVI). Mit HandBrake in MP4 (H.264) umwandeln.", 8000); return; }
+  // Ton prüfen: MKVs haben oft AC3/DTS-Ton, den Browser nicht abspielen
+  el.addEventListener("playing", () => setTimeout(() => {
+    if (bc.el === el && !el.paused && el.webkitAudioDecodedByteCount === 0) toast("Hinweis: Den Ton dieser Datei kann dein Browser nicht abspielen (oft AC3/DTS bei MKV). Mit HandBrake in AAC umwandeln.", 8000);
+  }, 4000), { once: true });
   const cap = el.captureStream || el.mozCaptureStream;
   if (!cap) { URL.revokeObjectURL(url); toast("Dein Browser kann Dateien nicht teilen – nimm Chrome oder Edge."); return; }
   const stream = cap.call(el);
+  stream.getVideoTracks().forEach(t => { try { t.contentHint = "motion"; } catch {} });
   bc.el = el; bc.url = url; bc.audioOnly = isAudio;
   el.addEventListener("ended", () => { if (state.video && state.video.src === "live" && state.video.ref === me.id) playNext(vkey(state.video), true); });
   // neue Spuren (z. B. nach dem ersten Abspielen) an alle Zuschauer nachreichen
-  stream.addEventListener("addtrack", e => { for (const pc of bc.peers.values()) try { pc.addTrack(e.track, stream); } catch {} });
+  stream.addEventListener("addtrack", e => { if (e.track.kind === "video") try { e.track.contentHint = "motion"; } catch {} for (const pc of bc.peers.values()) try { pc.addTrack(e.track, stream); preferH264(pc); } catch {} });
   beginBroadcast(stream, { kind: "file", title: file.name.replace(/\.[^.]+$/, ""), dur: isFinite(el.duration) ? el.duration : 0 });
 }
 function beginBroadcast(stream, info) {
@@ -1574,8 +1641,34 @@ function stopBroadcast(silent) {
   bc.stream = null; bc.el = null; bc.url = null;
   if (!silent) liveSend("stop", {});
 }
-function liveWant(sharer) { liveSend("want", { to: sharer }); }
+let liveTry = null;   // {sharer, sid, at, n, ok}
+function liveWant(sharer, retry) {
+  liveClose(sharer);
+  const n = retry && liveTry && liveTry.sharer === sharer ? liveTry.n + 1 : 1;
+  liveTry = { sharer, sid: uid(6), at: now(), n, ok: false };
+  liveSend("want", { to: sharer, sid: liveTry.sid });
+}
 function liveClose(sharer) { const pc = viewerPeers.get(sharer); if (pc) { try { pc.close(); } catch {} viewerPeers.delete(sharer); } }
+// Wächter: kommt kein Bild/Ton an oder bricht die Verbindung ab → automatisch neu verbinden
+setInterval(() => {
+  const p = player;
+  if (!room || !p || p.kind !== "live" || p.local || !p.item || p.item.ref === me.id) return;
+  const sharer = p.item.ref;
+  if (!liveTry || liveTry.sharer !== sharer) { liveWant(sharer); return; }
+  const pc = viewerPeers.get(sharer), cs = pc ? pc.connectionState : "new";
+  if (cs === "connected" && p.gotMedia) { liveTry.ok = true; liveTry.badSince = 0; return; }
+  if (liveTry.ok && (cs === "disconnected" || cs === "failed")) {
+    liveTry.badSince = liveTry.badSince || now();
+    if (cs === "failed" || now() - liveTry.badSince > 4000) { p.waiting(`Verbindung zu ${p.item.byName || "?"} unterbrochen – verbinde neu …`); liveWant(sharer, true); }
+    return;
+  }
+  const wait = Math.min(6000 + liveTry.n * 2000, 15000);
+  if (!liveTry.ok && now() - liveTry.at > wait) {
+    const here = people.some(x => x.id === sharer);
+    p.waiting(here ? `Verbinde mit dem Stream von ${p.item.byName || "?"} … (Versuch ${liveTry.n + 1})` : `${p.item.byName || "Der Teilende"} ist gerade nicht im Raum …`);
+    liveWant(sharer, true);
+  }
+}, 1500);
 async function liveSignal(op, local) {
   if (local || op.to !== me.id) return;
   const from = op.by;
@@ -1583,35 +1676,43 @@ async function liveSignal(op, local) {
     if (!bc.active || !bc.stream) return;
     const old = bc.peers.get(from); if (old) try { old.close(); } catch {}
     const pc = new RTCPeerConnection({ iceServers: ICE });
+    const sid = op.sid || "";
+    pc._sid = sid;
     bc.peers.set(from, pc);
     bc.stream.getTracks().forEach(t => pc.addTrack(t, bc.stream));
-    pc.onicecandidate = e => { if (e.candidate) liveSend("sig", { to: from, cand: e.candidate.toJSON() }); };
-    pc.onnegotiationneeded = async () => { try { await pc.setLocalDescription(); liveSend("sig", { to: from, desc: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } }); } catch (e) { console.warn("live offer", e); } };
-    // Bildqualität fürs Teilen etwas anheben
-    for (const snd of pc.getSenders()) if (snd.track && snd.track.kind === "video") { try { const pr = snd.getParameters(); pr.encodings = [{ ...(pr.encodings && pr.encodings[0]), maxBitrate: 2500000 }]; snd.setParameters(pr); } catch {} }
+    preferH264(pc);
+    pc.onicecandidate = e => { if (e.candidate) liveSend("sig", { to: from, sid, cand: e.candidate.toJSON() }); };
+    pc.onnegotiationneeded = async () => { try { await pc.setLocalDescription(); liveSend("sig", { to: from, sid, desc: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } }); applyShareQuality(pc); } catch (e) { console.warn("live offer", e); } };
+    pc.onconnectionstatechange = () => { if (pc.connectionState === "connected") applyShareQuality(pc); };
     return;
   }
   if (op.t === "sig") {
     // Antwort/Kandidaten an den Teilenden …
     if (bc.peers.has(from)) {
       const pc = bc.peers.get(from);
-      try { if (op.desc) await pc.setRemoteDescription(op.desc); else if (op.cand) await pc.addIceCandidate(op.cand); } catch (e) { console.warn("live sig", e); }
+      if ((op.sid || "") !== pc._sid) return;   // veralteter Versuch
+      // Kandidaten, die vor der Antwort eintreffen, puffern statt verwerfen (sonst klappt es oft erst beim 2. Versuch)
+      try {
+        if (op.desc) { await pc.setRemoteDescription(op.desc); for (const c of (pc._cands || []).splice(0)) await pc.addIceCandidate(c).catch(() => {}); }
+        else if (op.cand) { if (pc.remoteDescription) await pc.addIceCandidate(op.cand); else (pc._cands = pc._cands || []).push(op.cand); }
+      } catch (e) { console.warn("live sig", e); }
       return;
     }
-    // … oder als Zuschauer vom Teilenden
+    // … oder als Zuschauer vom Teilenden (nur Antworten auf den aktuellen Verbindungsversuch)
+    if (op.sid && (!liveTry || liveTry.sharer !== from || liveTry.sid !== op.sid)) return;
     let pc = viewerPeers.get(from);
     if (!pc) {
       pc = new RTCPeerConnection({ iceServers: ICE });
       viewerPeers.set(from, pc); pc._cands = [];
-      const ms = new MediaStream();
+      const ms = new MediaStream(), sid = op.sid;
       pc.ontrack = e => { ms.addTrack(e.track); if (player && player.kind === "live" && player.attach) player.attach(ms); };
-      pc.onicecandidate = e => { if (e.candidate) liveSend("sig", { to: from, cand: e.candidate.toJSON() }); };
+      pc.onicecandidate = e => { if (e.candidate) liveSend("sig", { to: from, sid, cand: e.candidate.toJSON() }); };
     }
     try {
       if (op.desc) {
         await pc.setRemoteDescription(op.desc);
         for (const c of pc._cands.splice(0)) await pc.addIceCandidate(c).catch(() => {});
-        if (op.desc.type === "offer") { await pc.setLocalDescription(); liveSend("sig", { to: from, desc: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } }); }
+        if (op.desc.type === "offer") { await pc.setLocalDescription(); liveSend("sig", { to: from, sid: op.sid, desc: { type: pc.localDescription.type, sdp: pc.localDescription.sdp } }); }
       } else if (op.cand) {
         if (pc.remoteDescription) await pc.addIceCandidate(op.cand).catch(() => {}); else pc._cands.push(op.cand);
       }
@@ -1676,6 +1777,7 @@ document.addEventListener("click", e => { if (!e.target.closest("#meMenu")) $("#
 $("#settingsBtn").onclick = () => {
   $("#setName").value = state.title || "";
   $("#setFs").value = fsMode();
+  $("#setShareQ").value = store.get("sc_share_q", "auto");
   hkCapture = false; renderHotkeyBtn();
   $("#setVoice").checked = roomAllows("voice"); $("#setCam").checked = roomAllows("cam"); $("#setCam").disabled = !$("#setVoice").checked;
   $("#settingsModal").hidden = false; $("#setName").focus();
@@ -1689,6 +1791,7 @@ $("#setSave").onclick = () => {
   const ns = { voice: $("#setVoice").checked, cam: $("#setVoice").checked && $("#setCam").checked, fsCams: $("#setFs").value };
   if (ns.voice !== roomAllows("voice") || ns.cam !== roomAllows("cam") || ns.fsCams !== fsMode()) send({ k: "settings", settings: ns });
   hkCapture = false;
+  if ($("#setShareQ").value !== store.get("sc_share_q", "auto")) { store.set("sc_share_q", $("#setShareQ").value); for (const pc of bc.peers.values()) applyShareQuality(pc); }
   $("#settingsModal").hidden = true;
   toast("Gespeichert");
 };

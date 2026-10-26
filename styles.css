@@ -888,3 +888,6 @@ select.input { appearance: auto; }
   .topbar .top-actions { justify-self: end; }
   .topbar.tb-tight { grid-template-columns: max-content minmax(0, 1fr) max-content; }
 }
+
+/* v22 */
+#settingsModal .modal { max-height: calc(100vh - 32px); overflow-y: auto; }
