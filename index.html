@@ -18,8 +18,8 @@
 <meta property="og:url" content="https://sharedcuetv.github.io/SharedCueTV/">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://sharedcuetv.github.io/SharedCueTV/og-image.jpg">
-<link rel="preload" href="fonts/material-symbols-subset.woff2?v=23" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=23">
+<link rel="preload" href="fonts/material-symbols-subset.woff2?v=24" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css?v=24">
 </head>
 <body>
 <div class="glow-bg" aria-hidden="true"></div>
@@ -98,11 +98,11 @@
       <span class="ms ab-ico" aria-hidden="true">search</span>
       <input id="qAddInput" class="input" placeholder="YouTube, Twitch, TikTok, Reel oder MP4/MP3 einfügen …" aria-label="Video-Link">
       <div class="ab-actions">
-        <button class="ab-icon" type="button" id="fileBtn" title="Eigene Datei für alle abspielen" aria-label="Eigene Datei für alle abspielen"><span class="ms">upload_file</span></button>
+        <button class="ab-icon" type="button" id="fileBtn" title="Eigene Dateien hinzufügen (auch mehrere)" aria-label="Eigene Dateien hinzufügen"><span class="ms">upload_file</span></button>
         <button class="ab-icon" type="button" id="screenBtn" title="Bildschirm teilen" aria-label="Bildschirm teilen"><span class="ms">screen_share</span></button>
         <button class="ab-go" type="submit"><span class="ms">add</span><span class="ab-go-txt">Hinzufügen</span></button>
       </div>
-      <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mov,.m4v,.webm,.mp4,.mp3,.m4a,.aac,.flac,.wav,.ogg,.opus" hidden>
+      <input type="file" id="fileInput" multiple accept="video/*,audio/*,.mkv,.mov,.m4v,.webm,.mp4,.mp3,.m4a,.aac,.flac,.wav,.ogg,.opus" hidden>
     </form>
     <div class="top-actions">
       <button class="icon-btn sq" id="settingsBtn" type="button" aria-label="Raum-Einstellungen" title="Raum-Einstellungen"><span class="ms">settings</span></button>
@@ -325,7 +325,7 @@
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
-<script src="config.js?v=23"></script>
-<script src="app.js?v=23"></script>
+<script src="config.js?v=24"></script>
+<script src="app.js?v=24"></script>
 </body>
 </html>
