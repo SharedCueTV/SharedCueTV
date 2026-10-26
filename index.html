@@ -18,8 +18,8 @@
 <meta property="og:url" content="https://sharedcuetv.github.io/SharedCueTV/">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://sharedcuetv.github.io/SharedCueTV/og-image.jpg">
-<link rel="preload" href="fonts/material-symbols-subset.woff2?v=15" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=15">
+<link rel="preload" href="fonts/material-symbols-subset.woff2?v=16" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css?v=16">
 </head>
 <body>
 <div class="glow-bg" aria-hidden="true"></div>
@@ -88,47 +88,54 @@
   <header class="topbar">
     <div class="brand"><img src="icon.svg" alt=""><span class="brand-name">Shared<span>Cue</span><b class="tv">TV</b></span></div>
     <button class="room-chip" id="codeChip" type="button" title="Einladungslink kopieren">
+      <span class="dot" id="liveDot"></span>
+      <span class="rc-name" id="roomName">Raum</span>
       <span class="room-code"><span class="ms">tag</span><span id="codeLabel">—</span></span>
-      <span class="sync-live"><span class="dot" id="liveDot"></span><span class="txt" id="liveTxt">verbinde …</span></span>
+      <span class="sr-only" id="liveTxt">verbinde …</span>
     </button>
-    <div class="spacer"></div>
-    <button class="btn btn-primary" id="inviteBtn" type="button"><span class="ms">person_add</span><span class="invite-txt">Freunde einladen</span></button>
-    <button class="icon-btn" id="leaveBtn" type="button" aria-label="Raum verlassen" title="Raum verlassen"><span class="ms">logout</span></button>
+    <form class="add-bar" id="qAdd" autocomplete="off">
+      <span class="ms ab-ico" aria-hidden="true">search</span>
+      <input id="qAddInput" class="input" placeholder="YouTube, Twitch, TikTok, Reel oder MP4/MP3 einfügen …" aria-label="Video-Link">
+      <div class="ab-actions">
+        <button class="ab-icon" type="button" id="fileBtn" title="Eigene Datei für alle abspielen" aria-label="Eigene Datei für alle abspielen"><span class="ms">upload_file</span></button>
+        <button class="ab-icon" type="button" id="screenBtn" title="Bildschirm teilen" aria-label="Bildschirm teilen"><span class="ms">screen_share</span></button>
+        <button class="ab-go" type="submit"><span class="ms">add</span><span class="ab-go-txt">Hinzufügen</span></button>
+      </div>
+      <input type="file" id="fileInput" accept="video/*,audio/*" hidden>
+    </form>
+    <div class="top-actions">
+      <button class="btn btn-primary" id="inviteBtn" type="button"><span class="ms">person_add</span><span class="invite-txt">Freunde einladen</span></button>
+      <button class="icon-btn sq" id="settingsBtn" type="button" aria-label="Raum-Einstellungen" title="Raum-Einstellungen"><span class="ms">settings</span></button>
+      <div class="me-wrap">
+        <button class="me-btn" id="meBtn" type="button" aria-label="Mein Profil" aria-haspopup="menu"><span class="avatar sqav" id="meAvatar">?</span><span class="ms caret">expand_more</span></button>
+        <div class="menu panel" id="meMenu" hidden role="menu">
+          <div class="menu-head"><span class="muted" style="font-size:12px">Angemeldet als</span><b id="meName">—</b></div>
+          <button type="button" role="menuitem" id="leaveBtn"><span class="ms">logout</span>Raum verlassen</button>
+        </div>
+      </div>
+    </div>
   </header>
 
   <div class="layout">
-    <!-- Sidebar -->
-    <aside class="sidebar" aria-label="Teilnehmer">
-      <section class="panel side-card">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span class="label-sm muted" id="peopleCount">Teilnehmer</span>
-          <span class="label-sm" style="color:var(--primary)">Alle steuern</span>
+    <!-- Links: Personen, Webcams, Audio -->
+    <aside class="sidebar" aria-label="Teilnehmer und Sprachchat">
+      <section class="card cams-card">
+        <div class="card-head">
+          <div class="ch-left"><h2 class="ch-title">Im Raum</h2><span class="count-pill" id="peopleCount">1</span></div>
+          <span class="ch-hint">Alle steuern</span>
         </div>
-        <ul class="people" id="peopleList"></ul>
+        <div class="cam-strip" id="camStrip" hidden aria-label="Webcams"></div>
+        <ul class="roster" id="peopleList" aria-label="Teilnehmer"></ul>
+        <div class="voice-wrap"><div class="voice-menu panel" id="voiceMenu" hidden></div></div>
       </section>
-      <section class="panel side-card">
-        <div style="display:flex;align-items:center;gap:6px;color:var(--primary)"><span class="ms" style="font-size:16px">speed</span><span class="label">Sync-Status</span></div>
-        <p style="margin:0" class="muted" id="syncInfo">Warte auf Video …</p>
+      <section class="card audio-card">
+        <h2 class="ch-title">Sprachchat</h2>
+        <div class="voice-ctl" id="voiceCtl"></div>
       </section>
     </aside>
 
-    <!-- Main -->
+    <!-- Mitte: Kino -->
     <main class="main">
-      <section class="panel room-head">
-        <div class="room-title">
-          <span class="dot" aria-hidden="true"></span>
-          <div style="min-width:0">
-            <div style="display:flex;align-items:center;gap:8px;min-width:0">
-              <h2 id="roomTitle">Raum</h2>
-              <span class="pill badge-sync" id="syncBadge">SYNCHRON</span>
-            </div>
-            <div class="muted" style="font-size:12px" id="roomSub">—</div>
-          </div>
-        </div>
-        <div class="stack head-people" id="headPeople"></div>
-        <div class="voice-wrap"><div class="voice-ctl" id="voiceCtl"></div><div class="voice-menu panel" id="voiceMenu" hidden></div></div>
-      </section>
-
       <section class="stage" aria-label="Player">
         <div class="screen">
           <div id="playerHost"></div>
@@ -137,6 +144,8 @@
             <span class="sbadge" id="srcBadge" hidden></span>
             <span class="sbadge sync" id="driftBadge" hidden><span class="ms">sync</span><span id="driftTxt">SYNC</span></span>
           </div>
+          <div class="stage-title" id="stageTitle" hidden><span>Aktuelle Wiedergabe</span><b id="stageTitleTxt"></b></div>
+          <div class="mini-chat" id="miniChat" hidden aria-hidden="true"><div class="mc-head"><i></i>Chat live</div><div class="mc-body" id="miniChatBody"></div></div>
           <div class="reactions-layer" id="reactLayer"></div>
           <div class="countdown" id="countdown" hidden aria-live="assertive"></div>
           <div class="upnext panel" id="upNext" hidden aria-live="polite"></div>
@@ -145,7 +154,7 @@
           <div class="empty-stage" id="emptyStage">
             <img src="icon.svg" alt="">
             <h3>Noch läuft nichts</h3>
-            <p>Füge rechts einen YouTube-, Twitch-, TikTok- oder Reel-Link hinzu. Das erste Video startet automatisch für alle.</p>
+            <p>Füge oben einen YouTube-, Twitch-, TikTok-, Reel- oder MP4/MP3-Link ein, teile eine Datei oder deinen Bildschirm.</p>
           </div>
           <div class="gesture" id="gesture" hidden>
             <div class="gesture-box">
@@ -170,81 +179,85 @@
           <div class="scrub"><input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Position im Video"></div>
           <div class="ctrl-row">
             <button class="play-btn" id="playBtn" type="button" aria-label="Abspielen"><span class="ms fill" id="playIcon">play_arrow</span></button>
-            <button class="icon-btn" id="back10" type="button" aria-label="10 Sekunden zurück"><span class="ms">replay_10</span></button>
-            <button class="icon-btn" id="fwd10" type="button" aria-label="10 Sekunden vor"><span class="ms">forward_10</span></button>
-            <button class="btn btn-ghost" id="resyncBtn" type="button" style="min-height:36px"><span class="ms" style="font-size:16px">sync</span>Resync</button>
+            <button class="ctl" id="back10" type="button" aria-label="10 Sekunden zurück" title="10 s zurück"><span class="ms">replay_10</span></button>
+            <button class="ctl" id="fwd10" type="button" aria-label="10 Sekunden vor" title="10 s vor"><span class="ms">forward_10</span></button>
+            <button class="resync" id="resyncBtn" type="button"><span class="ms">sync</span>Resync</button>
             <span class="time" id="timeTxt">0:00 / 0:00</span>
             <span class="grow"></span>
-            <button class="icon-btn" id="skipBtn" type="button" aria-label="Nächstes Video" title="Nächstes Video aus der Warteschlange"><span class="ms">skip_next</span></button>
+            <button class="ctl" id="skipBtn" type="button" aria-label="Nächstes Video" title="Nächstes Video"><span class="ms">skip_next</span></button>
             <div class="vol">
-              <button class="icon-btn" id="muteBtn" type="button" aria-label="Stumm schalten"><span class="ms" id="volIcon">volume_up</span></button>
+              <button class="ctl" id="muteBtn" type="button" aria-label="Stumm schalten"><span class="ms" id="volIcon">volume_up</span></button>
               <input type="range" id="vol" min="0" max="100" value="80" aria-label="Lautstärke">
             </div>
-            <button class="btn btn-ghost rate-btn" id="rateBtn" type="button" aria-label="Geschwindigkeit für alle" title="Geschwindigkeit für alle" hidden>1×</button>
-            <button class="icon-btn" id="qualBtn" type="button" aria-label="Qualität" title="Qualität"><span class="ms">hd</span></button>
-            <button class="icon-btn" id="fsBtn" type="button" aria-label="Vollbild"><span class="ms">fullscreen</span></button>
+            <button class="ctl rate-btn" id="rateBtn" type="button" aria-label="Geschwindigkeit für alle" title="Geschwindigkeit für alle" hidden>1×</button>
+            <button class="ctl" id="qualBtn" type="button" aria-label="Qualität" title="Qualität"><span class="ms">hd</span></button>
+            <button class="ctl" id="theaterBtn" type="button" aria-label="Kinomodus" title="Kinomodus"><span class="ms">crop_16_9</span></button>
+            <button class="ctl" id="fsBtn" type="button" aria-label="Vollbild" title="Vollbild"><span class="ms">fullscreen</span></button>
           </div>
         </div>
       </section>
 
-      <div class="cam-strip" id="camStrip" hidden aria-label="Webcams"></div>
-
-      <div class="react-bar" role="group" aria-label="Reaktionen" id="reactBar"></div>
+      <div class="card react-card"><span class="rc-label">Live Reaktion:</span><div class="react-bar" role="group" aria-label="Reaktionen" id="reactBar"></div></div>
 
       <div class="notice" id="igHint" hidden><span class="ms">timer</span><span>Instagram lässt sich nicht fernsteuern. Drück den Countdown-Knopf (unten links), dann startet jeder bei „LOS!“ das Reel selbst.</span></div>
 
-      <section class="panel poll-card" id="pollCard" hidden aria-live="polite"></section>
+      <section class="card poll-card" id="pollCard" hidden aria-live="polite"></section>
 
-      <section class="panel now-card" id="nowCard" hidden>
+      <section class="card now-card" id="nowCard" hidden>
         <div class="chips" id="nowChips"></div>
         <h3 id="nowTitle"></h3>
         <div class="info-line"><span class="ms">group</span><span>Alle im Raum dürfen Play, Pause und Spulen steuern. Weicht dein Player mehr als 1,5 s ab, holt er automatisch auf.</span></div>
       </section>
     </main>
 
-    <!-- Right panel -->
+    <!-- Rechts: Warteschlange, Chat, Stats -->
     <aside class="side-right" aria-label="Warteschlange und Chat">
-      <div class="rtabs" role="tablist">
-        <button class="rtab" role="tab" id="rtQueue" aria-selected="true" aria-controls="paneQueue"><span class="ms">playlist_play</span>Warteschlange <span class="count" id="qCount">0</span></button>
-        <button class="rtab" role="tab" id="rtChat" aria-selected="false" aria-controls="paneChat"><span class="ms">forum</span>Chat <span class="unread" id="unread" hidden></span></button>
+      <div class="card rtabs" role="tablist">
+        <button class="rtab" role="tab" id="rtQueue" aria-selected="true" aria-controls="paneQueue"><span class="ms">playlist_play</span><span class="rt-txt">Warteschlange</span><span class="count" id="qCount">0</span></button>
+        <button class="rtab" role="tab" id="rtChat" aria-selected="false" aria-controls="paneChat"><span class="ms">forum</span><span class="rt-txt">Chat</span><span class="count c2" id="chatCount">0</span><span class="unread" id="unread" hidden></span></button>
         <button class="rtab" role="tab" id="rtStats" aria-selected="false" aria-controls="paneStats" aria-label="Statistik" title="Statistik"><span class="ms">leaderboard</span><span class="rt-txt">Stats</span></button>
       </div>
 
-      <section class="panel rpanel" id="paneQueue" role="tabpanel" aria-labelledby="rtQueue">
-        <span class="label-sm muted">Video oder Stream einreichen</span>
-        <form class="add-row" id="qAdd" autocomplete="off">
-          <input class="input" id="qAddInput" placeholder="Link: YouTube, Twitch, TikTok, Reel, MP4/MP3" aria-label="Video-Link">
-          <button class="btn btn-primary" type="submit" style="min-height:42px"><span class="ms">add</span>Hinzufügen</button>
-        </form>
-        <div class="filters" role="group" aria-label="Filter">
-          <button class="fchip" data-f="all" aria-pressed="true">Alle</button>
-          <button class="fchip" data-f="yt" aria-pressed="false">YouTube</button>
-          <button class="fchip" data-f="tw" aria-pressed="false">Twitch</button>
-          <button class="fchip" data-f="clips" aria-pressed="false">TikTok &amp; Reels</button>
-          <button class="fchip" data-f="files" aria-pressed="false">Dateien</button>
-        </div>
-        <div class="src-row">
-          <button class="btn btn-ghost" type="button" id="fileBtn" title="Eigene MP4-/MP3-Datei für alle abspielen"><span class="ms">upload_file</span>Datei</button>
-          <button class="btn btn-ghost" type="button" id="screenBtn" title="Bildschirm oder Tab für alle streamen"><span class="ms">screen_share</span>Bildschirm</button>
-          <input type="file" id="fileInput" accept="video/*,audio/*" hidden>
+      <section class="card rpanel" id="paneQueue" role="tabpanel" aria-labelledby="rtQueue">
+        <div class="card-head">
+          <h2 class="ch-title">Als Nächstes (<span id="qCount2">0</span>)</h2>
+          <button class="link-btn" type="button" id="qClear">Leeren</button>
         </div>
         <div class="poll-bar" id="pollBar"></div>
         <div class="notice" id="qNotice" hidden><span class="ms">celebration</span><span id="qNoticeTxt"></span></div>
         <div class="scroll" id="qList"></div>
       </section>
 
-      <section class="panel rpanel" id="paneChat" role="tabpanel" aria-labelledby="rtChat" hidden>
+      <section class="card rpanel" id="paneChat" role="tabpanel" aria-labelledby="rtChat" hidden>
         <div class="scroll" id="chatList" aria-live="polite"></div>
         <form class="chat-form" id="chatForm" autocomplete="off">
           <input class="input" id="chatInput" maxlength="500" placeholder="Nachricht … (z. B. „ab 2:31 wird’s gut“)" aria-label="Nachricht">
-          <button class="icon-btn" type="submit" aria-label="Senden" style="width:44px;height:44px;background:var(--primary-c);color:var(--on-primary)"><span class="ms fill">send</span></button>
+          <button class="icon-btn send" type="submit" aria-label="Senden"><span class="ms fill">send</span></button>
         </form>
       </section>
 
-      <section class="panel rpanel" id="paneStats" role="tabpanel" aria-labelledby="rtStats" hidden>
+      <section class="card rpanel" id="paneStats" role="tabpanel" aria-labelledby="rtStats" hidden>
         <div class="scroll" id="statsBody"></div>
       </section>
     </aside>
+  </div>
+
+  <!-- unsichtbare Status-Felder (werden vom Code weiter befüllt) -->
+  <div hidden><span id="roomTitle"></span><span id="roomSub"></span><span id="syncBadge"></span><span id="syncInfo"></span><span id="headPeople"></span></div>
+</div>
+
+<!-- Raum-Einstellungen -->
+<div class="modal-bg" id="settingsModal" hidden>
+  <div class="panel modal" role="dialog" aria-modal="true" aria-labelledby="setTitle">
+    <h3 id="setTitle">Raum-Einstellungen</h3>
+    <div class="field"><label for="setName">Raumname</label><input id="setName" class="input" maxlength="48"></div>
+    <fieldset class="opts">
+      <legend>Im Raum erlauben</legend>
+      <label class="switch"><input type="checkbox" id="setVoice"> Sprachchat</label>
+      <label class="switch"><input type="checkbox" id="setCam"> Webcams (im Sprachchat)</label>
+    </fieldset>
+    <p class="muted" style="margin:0;font-size:12px">Änderungen gelten sofort für alle im Raum.</p>
+    <div class="row" style="justify-content:flex-end"><button class="btn btn-ghost" id="setCancel" type="button">Abbrechen</button><button class="btn btn-primary" id="setSave" type="button">Speichern</button></div>
   </div>
 </div>
 
@@ -294,7 +307,7 @@
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
-<script src="config.js?v=15"></script>
-<script src="app.js?v=15"></script>
+<script src="config.js?v=16"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>

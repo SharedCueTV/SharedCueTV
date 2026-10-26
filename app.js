@@ -611,7 +611,9 @@ function applyOp(op, local) {
     case "countdown": runCountdown(local ? "Du" : op.name); return;
     case "voice": voiceSignal(op, local); return;
     case "live": liveSignal(op, local); return;
-    case "title": state.title = op.title; break;
+    case "title": state.title = String(op.title || "").slice(0, 48) || state.title; break;
+    case "settings": state.settings = { voice: op.settings.voice !== false, cam: op.settings.voice !== false && op.settings.cam !== false }; if (!local) actorToast(`${actor} hat die Raum-Einstellungen geändert`); if (!roomAllows("cam") && voice.cam) camToggle(); break;
+    case "qclear": state.queue = []; if (!local) actorToast(`${actor} hat die Warteschlange geleert`); break;
   }
   renderAll();
   syncPlayer(true);
@@ -831,7 +833,7 @@ setInterval(() => {
 
 // ---------------------------------------------------------------- Rendering
 function renderAll() {
-  renderHead(); renderPeople(); renderQueue(); renderChat(); renderNow(); renderSource(); renderAdHold(); renderPoll(); renderPollBar();
+  renderHead(); renderPeople(); renderQueue(); renderChat(); renderNow(); renderSource(); renderAdHold(); renderPoll(); renderPollBar(); renderStageTitle();
 }
 function avatarHTML(p, cls = "") {
   return `<span class="avatar ${cls}" data-uid="${esc(p.id)}" style="background:${esc(p.color || colorFor(p.id))}" title="${esc(p.name)}">${esc(initials(p.name))}</span>`;
@@ -843,6 +845,9 @@ function renderHead() {
   $("#roomSub").textContent = `${n} ${n === 1 ? "Person" : "Personen"} im Raum · Code ${room.code}` + (room.pw ? " · mit Passwort" : "") + (!roomAllows("voice") ? " · ohne Sprachchat" : !roomAllows("cam") ? " · ohne Webcams" : "");
   $("#liveTxt").textContent = `${n} ${n === 1 ? "Person" : "Freunde"} synchron`;
   $("#codeLabel").textContent = room.code;
+  $("#roomName").textContent = state.title || "Raum";
+  const ma = $("#meAvatar"); ma.textContent = initials(me.name); ma.style.background = me.color;
+  $("#meName").textContent = me.name;
   const url = inviteUrl(true);
   $("#codeChip").title = "Einladungslink kopieren: " + url.replace(/^https?:\/\//, "");
   const hp = people.slice(0, 6).map(p => avatarHTML(p, p.id === me.id ? "me" : "")).join("");
@@ -850,12 +855,20 @@ function renderHead() {
 }
 function renderPeople() {
   const l = leader();
-  $("#peopleCount").textContent = `Teilnehmer (${people.length})`;
-  $("#peopleList").innerHTML = people.map(p => `
-    <li class="person">${avatarHTML(p, p.id === me.id ? "me" : "")}
-      <div class="who"><div class="nm">${esc(p.name)}${p.id === me.id ? " (du)" : ""}</div>
-      <div class="st">${l && l.id === p.id ? "Sync-Referenz" : "verbunden"}</div></div>
-      ${voice.members.has(p.id) ? `<span class="ms vmic ${voice.members.get(p.id).muted ? "off" : ""}" title="${voice.members.get(p.id).muted ? "stumm" : "im Sprachchat"}">${voice.members.get(p.id).muted ? "mic_off" : "mic"}</span>` : ""}</li>`).join("");
+  $("#peopleCount").textContent = people.length;
+  const camIds = new Set($$(".cam-tile", $("#camStrip")).map(t => t.dataset.uid));
+  $("#peopleList").innerHTML = people.filter(p => !camIds.has(p.id)).map(p => {
+    const vm = voice.members.get(p.id);
+    const mic = vm ? `<span class="rmic ${vm.muted ? "off" : ""}"><span class="ms">${vm.muted ? "mic_off" : "mic"}</span></span>` : "";
+    const st = p.id === me.id ? "Du" : vm ? (vm.muted ? "Stumm" : "Im Sprachchat") : l && l.id === p.id ? "Sync-Referenz" : "Online";
+    return `<li><button class="rchip" type="button" data-uid="${esc(p.id)}" title="${esc(p.name)} · ${esc(st)}${vm && p.id !== me.id ? " – Klick: Lautstärke" : ""}">
+      ${avatarHTML(p, p.id === me.id ? "me" : "")}${mic}<span class="rname">${esc(p.id === me.id ? "Du" : p.name)}</span></button></li>`;
+  }).join("");
+  // Namen/Mikro auf den Kamera-Kacheln aktuell halten
+  $$(".cam-tile", $("#camStrip")).forEach(t => {
+    const vm = voice.members.get(t.dataset.uid), b = t.querySelector(".tmic");
+    if (b) { b.className = "tmic" + (vm && vm.muted ? " off" : ""); b.innerHTML = `<span class="ms">${vm && vm.muted ? "mic_off" : "mic"}</span>`; }
+  });
   renderVoice();
 }
 function renderSource() {
@@ -881,7 +894,8 @@ function renderNow() {
 }
 function renderQueue() {
   const all = sortedQueue();
-  $("#qCount").textContent = all.length;
+  $("#qCount").textContent = all.length; $("#qCount2").textContent = all.length;
+  $("#qClear").hidden = !all.length;
   const list = all.filter(q => filter === "all" || family(q.src) === filter);
   if (!list.length) {
     $("#qList").innerHTML = `<div class="q-empty"><span class="ms">queue_music</span><div>${all.length ? "Nichts in diesem Filter." : "Die Warteschlange ist leer.<br>Füge oben einen Link hinzu."}</div></div>`;
@@ -913,6 +927,8 @@ function renderQueue() {
 }
 function renderChat() {
   const box = $("#chatList");
+  $("#chatCount").textContent = state.chat.length;
+  renderMiniChat();
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
   const all = [...state.chat.map(m => ({ ...m, kind: "msg" })), ...sysMsgs.map(m => ({ ...m, kind: "sys" }))].sort((a, b) => a.ts - b.ts);
   box.innerHTML = all.length ? all.map(m => m.kind === "sys"
@@ -996,7 +1012,8 @@ setInterval(() => {
   $("#playIcon").textContent = manual ? "timer" : playing ? "pause" : "play_arrow";
   $("#rateBtn").textContent = fmtRate(RATE());
   const sharingScreen = bc.active && bc.stream && !bc.el;
-  $("#screenBtn").innerHTML = sharingScreen ? `<span class="ms">stop_screen_share</span>Teilen beenden` : `<span class="ms">screen_share</span>Bildschirm`;
+  { const sb = $("#screenBtn"), want = sharingScreen ? "stop_screen_share" : "screen_share";
+    if (sb.dataset.st !== want) { sb.dataset.st = want; sb.innerHTML = `<span class="ms">${want}</span>`; sb.title = sharingScreen ? "Teilen beenden" : "Bildschirm teilen"; sb.setAttribute("aria-label", sb.title); } }
   $("#screenBtn").classList.toggle("danger-btn", !!sharingScreen);
   $("#rateBtn").hidden = !(player && player.setRate);
   $("#playBtn").setAttribute("aria-label", manual ? "Countdown für alle starten" : playing ? "Pausieren" : "Abspielen");
@@ -1165,7 +1182,7 @@ function getPeer(id) {
       const st = new MediaStream([tr]);
       if (!p.audio) { p.audio = document.createElement("audio"); p.audio.autoplay = true; p.audio.playsInline = true; document.body.appendChild(p.audio); }
       p.audio.srcObject = st;
-      p.audio.volume = peerVol(id);
+      p.audio.volume = clamp(peerVol(id) * voiceMaster(), 0, 1);
       p.audio.play().catch(() => {});
       addMeter(id, st);
     } else if (tr.kind === "video") {
@@ -1230,7 +1247,8 @@ function voiceSignal(op, local) {
 }
 // ---------------------------------------------------------------- Webcams
 async function camToggle() {
-  if (!voice.on || !roomAllows("cam")) return;
+  if (!voice.on) return;
+  if (!voice.cam && !roomAllows("cam")) return;
   if (voice.cam) {
     voice.cam.stop(); voice.cam = null;
     for (const p of voice.peers.values()) if (p.videoSender) p.videoSender.replaceTrack(null).catch(() => {});
@@ -1257,8 +1275,9 @@ function showCamTile(id, track, self) {
     tile.className = "cam-tile" + (self ? " self" : "");
     tile.dataset.uid = id;
     const name = self ? "Du" : ((voice.members.get(id) || {}).name || "?");
-    tile.innerHTML = `<video autoplay playsinline muted></video><span class="nm">${esc(name)}</span>`;
+    tile.innerHTML = `<video autoplay playsinline muted></video><span class="tshade"></span><span class="tmic"><span class="ms">mic</span></span><span class="nm">${esc(name)}</span>`;
     strip.appendChild(tile);
+    renderPeople();
   }
   const v = tile.querySelector("video");
   if (!v.srcObject || v.srcObject.getVideoTracks()[0] !== track) v.srcObject = new MediaStream([track]);
@@ -1270,6 +1289,7 @@ function removeCamTile(id) {
   const t = strip.querySelector(`.cam-tile[data-uid="${CSS.escape(id)}"]`);
   if (t) { const v = t.querySelector("video"); if (v) v.srcObject = null; t.remove(); }
   strip.hidden = !strip.children.length;
+  if (t) renderPeople();
 }
 const roomAllows = k => !state.settings || state.settings[k] !== false;
 function addMeter(id, stream) {
@@ -1292,26 +1312,57 @@ setInterval(() => {
     if (loud) voice.speaking.add(id); else voice.speaking.delete(id);
   }
   $$(".avatar[data-uid]").forEach(a => a.classList.toggle("speaking", voice.speaking.has(a.dataset.uid)));
+  $$(".cam-tile").forEach(t => t.classList.toggle("speaking", voice.speaking.has(t.dataset.uid)));
 }, 200);
 function renderVoice() {
   const box = $("#voiceCtl"); if (!box) return;
   const n = voice.members.size;
-  if (!roomAllows("voice")) { box.innerHTML = ""; if (voice.on) voiceLeave(); return; }
+  if (!roomAllows("voice")) { box.innerHTML = `<p class="muted" style="margin:0;font-size:13px">Sprachchat ist in diesem Raum ausgeschaltet.</p>`; if (voice.on) voiceLeave(); return; }
   if (!voice.on) {
-    box.innerHTML = `<button class="btn btn-ghost" type="button" data-v="join"><span class="ms">mic</span>Sprachchat${n ? ` · ${n}` : ""}</button>`;
-  } else {
-    const camBtn = roomAllows("cam") ? `<button class="icon-btn ${voice.cam ? "live" : ""}" type="button" data-v="cam" aria-label="${voice.cam ? "Kamera aus" : "Kamera an"}" title="${voice.cam ? "Kamera aus" : "Kamera an"}"><span class="ms">${voice.cam ? "videocam" : "videocam_off"}</span></button>` : "";
-    box.innerHTML = camBtn + `<button class="icon-btn ${voice.muted ? "danger" : "live"}" type="button" data-v="mute" aria-label="${voice.muted ? "Mikrofon an" : "Stumm schalten"}" title="${voice.muted ? "Mikrofon an" : "Stumm schalten"}"><span class="ms">${voice.muted ? "mic_off" : "mic"}</span></button>
-      <button class="btn btn-ghost vbtn" type="button" data-v="vol" aria-label="Lautstärke im Sprachchat" title="Lautstärke pro Person"><span class="ms">volume_up</span>${n} im Voice</button>
-      <button class="icon-btn danger" type="button" data-v="leave" aria-label="Sprachchat verlassen" title="Sprachchat verlassen"><span class="ms">call_end</span></button>`;
+    box.innerHTML = `<button class="vbig join" type="button" data-v="join"><span class="ms">mic</span>Sprachchat beitreten${n ? ` · ${n} drin` : ""}</button>`;
+    return;
   }
+  const master = Math.round(voiceMaster() * 100);
+  box.innerHTML = `<div class="vgrid">
+    <button class="vbig ${voice.muted ? "off" : "on"}" type="button" data-v="mute"><span class="ms">${voice.muted ? "mic_off" : "mic"}</span>Mikro: ${voice.muted ? "Aus" : "An"}</button>
+    <button class="vbig" type="button" data-v="out"><span class="ms">volume_up</span>Ausgabe ${master}%</button>
+    ${roomAllows("cam") ? `<button class="vbig ${voice.cam ? "on" : ""}" type="button" data-v="cam"><span class="ms">${voice.cam ? "videocam" : "videocam_off"}</span>Kamera: ${voice.cam ? "An" : "Aus"}</button>` : ""}
+    <button class="vbig leave" type="button" data-v="leave"><span class="ms">call_end</span>Verlassen</button>
+  </div>`;
 }
+function voiceMaster() { return clamp(+store.get("sc_voice_master", 100) / 100, 0, 1); }
+function applyPeerVolumes() { for (const [id, p] of voice.peers) if (p.audio) p.audio.volume = clamp(peerVol(id) * voiceMaster(), 0, 1); }
+function openVoicePop(anchor, html) {
+  const menu = $("#voiceMenu");
+  menu.innerHTML = html;
+  const card = anchor.closest(".sidebar") || document.body;
+  const r = anchor.getBoundingClientRect(), c = card.getBoundingClientRect();
+  menu.style.left = Math.max(0, Math.min(r.left - c.left, c.width - 260)) + "px";
+  menu.style.top = (r.bottom - c.top + 6) + "px";
+  menu.hidden = false;
+}
+function personPop(id, anchor) {
+  const p = people.find(x => x.id === id) || { id, name: (voice.members.get(id) || {}).name || "?" };
+  const vm = voice.members.get(id);
+  let body;
+  if (id === me.id) body = `<div class="muted" style="font-size:13px">Das bist du${voice.on ? (voice.muted ? " – Mikro aus" : " – im Sprachchat") : ""}.</div>`;
+  else if (!vm) body = `<div class="muted" style="font-size:13px">Nicht im Sprachchat.</div>`;
+  else { const v = Math.round(peerVol(id) * 100); body = `<label class="vrow"><span class="nm">Lautstärke</span><input type="range" min="0" max="100" value="${v}" data-pv="${esc(id)}" style="--p:${v}%" aria-label="Lautstärke ${esc(p.name)}"></label>${voice.on ? "" : `<div class="muted" style="font-size:12px">Tritt dem Sprachchat bei, um ${esc(p.name)} zu hören.</div>`}`; }
+  openVoicePop(anchor, `<div class="vp-head">${avatarHTML(p)}<b>${esc(p.name)}</b></div>${body}`);
+}
+$("#peopleList").addEventListener("click", e => { const b = e.target.closest(".rchip"); if (!b) return; e.stopPropagation(); personPop(b.dataset.uid, b); });
+$("#camStrip").addEventListener("click", e => { const t = e.target.closest(".cam-tile"); if (!t) return; e.stopPropagation(); personPop(t.dataset.uid, t); });
 $("#voiceCtl").addEventListener("click", e => {
   const b = e.target.closest("button[data-v]"); if (!b) return;
   if (b.dataset.v === "join") voiceJoin();
   else if (b.dataset.v === "mute") voiceToggleMute();
   else if (b.dataset.v === "cam") camToggle();
   else if (b.dataset.v === "vol") { e.stopPropagation(); toggleVoiceMenu(); }
+  else if (b.dataset.v === "out") {
+    e.stopPropagation();
+    const v = Math.round(voiceMaster() * 100);
+    openVoicePop(b, `<label class="vrow"><span class="nm">Sprachchat gesamt (nur bei dir)</span><input type="range" min="0" max="100" value="${v}" data-master="1" style="--p:${v}%" aria-label="Lautstärke Sprachchat gesamt"></label>`);
+  }
   else { $("#voiceMenu").hidden = true; voiceLeave(); }
 });
 function peerKey(id) { const m = voice.members.get(id); return "sc_pv_" + ((m && m.name) || id).toLowerCase(); }
@@ -1326,11 +1377,13 @@ function toggleVoiceMenu() {
   menu.hidden = false;
 }
 $("#voiceMenu").addEventListener("input", e => {
+  const m = e.target.closest("input[data-master]");
+  if (m) { store.set("sc_voice_master", +m.value); m.style.setProperty("--p", m.value + "%"); applyPeerVolumes(); renderVoice(); return; }
   const r = e.target.closest("input[data-pv]"); if (!r) return;
   const id = r.dataset.pv;
   store.set(peerKey(id), +r.value);
   r.style.setProperty("--p", r.value + "%");
-  const p = voice.peers.get(id); if (p && p.audio) p.audio.volume = peerVol(id);
+  applyPeerVolumes();
 });
 $("#voiceMenu").addEventListener("click", e => e.stopPropagation());
 document.addEventListener("click", () => { const m = $("#voiceMenu"); if (m) m.hidden = true; });
@@ -1599,6 +1652,43 @@ function finishEnterFx(ok) {
     setTimeout(() => { fx.classList.add("done"); fx.hidden = true; }, reduce ? 200 : 900);
   }, wait);
 }
+
+// ---------------------------------------------------------------- Redesign: Mini-Chat, Titel, Menüs, Kinomodus
+function renderMiniChat() {
+  const box = $("#miniChat"); if (!box) return;
+  const recent = state.chat.filter(m => now() - m.ts < 45000).slice(-4);
+  box.hidden = !recent.length || !state.video;
+  $("#miniChatBody").innerHTML = recent.map(m => `<p><b style="color:${esc(m.color || colorFor(m.by))}">${esc(m.name)}:</b> ${esc(m.text)}</p>`).join("");
+}
+setInterval(() => { if (room) renderMiniChat(); }, 5000);
+function renderStageTitle() {
+  const v = state.video;
+  $("#stageTitle").hidden = !v;
+  if (v) $("#stageTitleTxt").textContent = v.title || "";
+}
+$("#meBtn").onclick = e => { e.stopPropagation(); const m = $("#meMenu"); m.hidden = !m.hidden; };
+document.addEventListener("click", e => { if (!e.target.closest("#meMenu")) $("#meMenu").hidden = true; });
+$("#settingsBtn").onclick = () => {
+  $("#setName").value = state.title || "";
+  $("#setVoice").checked = roomAllows("voice"); $("#setCam").checked = roomAllows("cam"); $("#setCam").disabled = !$("#setVoice").checked;
+  $("#settingsModal").hidden = false; $("#setName").focus();
+};
+$("#setVoice").onchange = () => { $("#setCam").disabled = !$("#setVoice").checked; };
+$("#setCancel").onclick = () => { $("#settingsModal").hidden = true; };
+$("#settingsModal").addEventListener("click", e => { if (e.target.id === "settingsModal") $("#settingsModal").hidden = true; });
+$("#setSave").onclick = () => {
+  const t = $("#setName").value.trim();
+  if (t && t !== state.title) send({ k: "title", title: t });
+  const ns = { voice: $("#setVoice").checked, cam: $("#setVoice").checked && $("#setCam").checked };
+  if (ns.voice !== roomAllows("voice") || ns.cam !== roomAllows("cam")) send({ k: "settings", settings: ns });
+  $("#settingsModal").hidden = true;
+  toast("Gespeichert");
+};
+$("#qClear").onclick = () => { if (state.queue.length) send({ k: "qclear" }); };
+$("#theaterBtn").onclick = () => {
+  document.body.classList.toggle("theater");
+  $("#theaterBtn").classList.toggle("live", document.body.classList.contains("theater"));
+};
 // ---------------------------------------------------------------- Room lifecycle
 function genCode() {
   const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -1927,7 +2017,7 @@ async function copy(text, btn) {
 
 document.addEventListener("keydown", e => {
   if (!room) { return; }
-  if (e.key === "Escape") { $("#inviteModal").hidden = true; return; }
+  if (e.key === "Escape") { $("#inviteModal").hidden = true; $("#settingsModal").hidden = true; $("#extModal").hidden = true; $("#meMenu").hidden = true; return; }
   const tag = (e.target.tagName || "").toLowerCase();
   if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
   if (e.key === " " || e.key === "k") { e.preventDefault(); userToggle(); }
