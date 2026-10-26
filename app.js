@@ -681,6 +681,7 @@ const playerCb = {
   native(p, st) {
     if (p !== player || !state.video || p.inAd || loadedKey !== vkey(state.video)) return;
     if (now() - p.cmdAt < 1200 || now() - (p.loadAt || 0) < 2500) return;   // war unser eigener Befehl
+    if (!userInPlayer()) return;   // nur echte Bedienung im Player zählt (kein Pausieren durch Browser/Puffer)
     if (st === 2 && state.pb.playing) {
       const d = p.duration(), t = p.time();
       if (d && t >= d - 1) return;
@@ -832,6 +833,8 @@ function resumeGesture() {
   if (player && player.ready && !player.manual) { playerCb.volume(player); player.seek(expectedPos()); player.play(); }
 }
 
+// Hat der Nutzer gerade im YouTube-Player geklickt/getippt? (Fokus liegt dann im iframe)
+function userInPlayer() { const a = document.activeElement; return !document.hidden && !!a && a.tagName === "IFRAME" && host().contains(a); }
 // Spulen direkt in der YouTube-Zeitleiste erkennen: Zeit springt plötzlich weg, obwohl wir nichts gesteuert haben
 setInterval(() => {
   const p = player;
@@ -839,7 +842,7 @@ setInterval(() => {
   const st = p.p.getPlayerState ? p.p.getPlayerState() : -1;
   if (st !== 1 && st !== 2 && st !== 3) { p._sd = null; return; }
   const diff = p.time() - expectedPos();
-  const quiet = now() - p.cmdAt > 1500 && now() - lastCorrection > 1500 && now() - (p.loadAt || 0) > 3000;
+  const quiet = userInPlayer() && now() - p.cmdAt > 1500 && now() - lastCorrection > 1500 && now() - (p.loadAt || 0) > 3000;
   if (quiet && p._sd != null && Math.abs(p._sd) < 1.2 && Math.abs(diff) > 2.5) { p._sd = null; send({ k: "seek", pos: p.time() }); return; }
   p._sd = diff;
 }, 400);
