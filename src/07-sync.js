@@ -7,7 +7,7 @@ const playerCb = {
     if (!state.video || Math.abs(r - RATE()) < 0.01) return;
     send({ k: "rate", rate: r, pos: curPos() });
   },
-  blocked() { if (state.pb.playing) showGesture(); },
+  blocked() { if (state.pb.playing) handleBlocked(); },
   // Play/Pause direkt im YouTube-Player → für alle übernehmen
   native(p, st) {
     if (p !== player || !state.video || p.inAd || loadedKey !== vkey(state.video)) return;
@@ -18,7 +18,6 @@ const playerCb = {
       if (d && t >= d - 1) return;
       send({ k: "pause", pos: t });
     } else if (st === 1 && !state.pb.playing) {
-      if (gestureNeeded) { gestureNeeded = false; $("#gesture").hidden = true; }
       send({ k: "play", pos: p.time() });
     }
   },
@@ -34,21 +33,18 @@ const playerCb = {
   }
 };
 
-// Stumm weiterschauen statt „Mitschauen“-Klick: stummes Autoplay erlauben alle Browser.
-// Der erste Klick/Tastendruck irgendwo auf der Seite schaltet den Ton wieder ein.
-const MUTE_OK = { yt: 1, tw: 1, tt: 1, file: 1 };
+// Blockiert der Browser den Ton (nur ohne Klick auf der Seite, z. B. nach F5), läuft das Video stumm weiter –
+// ohne Fenster, ohne Hinweis. Der erste Klick/Tastendruck irgendwo schaltet den Ton wieder ein.
+const MUTE_OK = { yt: 1, tw: 1, tt: 1, file: 1, live: 1 };
 let autoMuted = false, autoMuteFails = 0, autoMutedAt = 0;
 function setAutoMute(on, quiet) {
   autoMuted = on; autoMutedAt = now();
-  const h = $("#soundHint");
-  if (h) {
-    h.hidden = !on;
-    $("#soundHintTxt").textContent = autoMuteFails > 1 ? "Ton im Video-Player einschalten" : "Ton einschalten";
-  }
-  if (!quiet && player && player.ready) playerCb.volume(player);
+  if (!quiet) applyVol(); else applyVolIcon();
 }
+let autoUnmutedAt = 0;
 function unmuteByUser() {
   if (!autoMuted || autoMuteFails > 1) return;
+  autoUnmutedAt = now();   // der Klick auf den Lautsprecher-Knopf soll danach nicht gleich wieder stumm schalten
   setAutoMute(false);
   // Manche Browser (Safari) pausieren beim Ton-Einschalten ohne Klick im Player → dann wieder stumm
   setTimeout(() => {
@@ -129,7 +125,7 @@ function enforce(fromOp) {
   if (!player || !player.ready || player.manual || !state.video || loadedKey !== vkey(state.video)) return;
   if (player.inAd) return;   // während Werbung nichts erzwingen – danach wird aufgeholt
   const want = state.pb.playing;
-  if (want && !player.isPlaying() && !player.isBuffering() && !gestureNeeded) { player.play(); lastPlayCmd = now(); setTimeout(checkBlocked, 2000); }
+  if (want && !player.isPlaying() && !player.isBuffering()) { player.play(); lastPlayCmd = now(); setTimeout(checkBlocked, 2000); }
   if (!want && player.isPlaying()) player.pause();
   if (player.setRate && Math.abs(player.rate() - RATE()) > 0.01) player.setRate(RATE());
   if (player.live) return;
@@ -153,7 +149,7 @@ function checkBlocked() {
   const clicked = !navigator.userActivation || navigator.userActivation.hasBeenActive;
   if ((player._retried || 0) < (clicked ? 5 : 1)) { player._retried = (player._retried || 0) + 1; player.play(); setTimeout(checkBlocked, 2000); return; }
   player._retried = 0;
-  showGesture();
+  handleBlocked();
 }
 
 function playNext(prevKey, withCountdown) {
@@ -181,7 +177,6 @@ function userToggle() {
     return;
   }
   const pos = curPos();
-  if (gestureNeeded) { resumeGesture(); if (state.pb.playing) return; }
   send({ k: state.pb.playing ? "pause" : "play", pos });
 }
 function userSeek(t) {
@@ -190,21 +185,11 @@ function userSeek(t) {
   t = clamp(t, 0, d ? d - 0.5 : t);
   send({ k: "seek", pos: t });
 }
-function showGesture() {
-  // Blockiert? Zuerst stumm abspielen – erst wenn auch das nicht klappt, braucht es den „Mitschauen“-Klick
-  if (player && player.ready && !player.manual && MUTE_OK[player.kind] && !autoMuted && !store.get("sc_mute", false)) {
-    setAutoMute(true); player.play(); lastPlayCmd = now(); setTimeout(checkBlocked, 2500);
-    return;
-  }
-  gestureNeeded = true;
-  const v = state.video;
-  $("#gestureYt").hidden = !(v && v.src === "yt");
-  if (v && v.src === "yt") $("#gestureYt").href = `https://www.youtube.com/watch?v=${encodeURIComponent(v.ref)}&t=${Math.floor(expectedPos())}s`;
-  $("#gesture").hidden = false;
-}
-function resumeGesture() {
-  gestureNeeded = false; $("#gesture").hidden = true;
-  if (player && player.ready && !player.manual) { playerCb.volume(player); player.seek(expectedPos()); player.play(); }
+// Abspielen blockiert → stumm schalten (erlaubt jeder Browser) und weiter versuchen. Kein Fenster.
+function handleBlocked() {
+  if (!player || !player.ready || player.manual) return;
+  if (MUTE_OK[player.kind] && !autoMuted && !store.get("sc_mute", false)) setAutoMute(true);
+  player.play(); lastPlayCmd = now();
 }
 
 // Hat der Nutzer gerade im YouTube-Player geklickt/getippt? (Fokus liegt dann im iframe)
@@ -225,6 +210,7 @@ setInterval(() => {
 setInterval(() => {
   if (!room || !synced) return;
   reportAd();
+  // „Mitschauen“ steht noch da, aber das Video läuft inzwischen (z. B. nach Werbung oder langsamem Laden) → Fenster weg
   // Ton direkt im YouTube-Player eingeschaltet → Hinweis weg
   if (autoMuted && player && player.ready && player.isMuted && now() - autoMutedAt > 3000 && !player.isMuted()) setAutoMute(false, true);
   enforce(false);

@@ -17,7 +17,6 @@ function applyOp(op, local) {
       state.video = op.video;
       setPb(op.playing !== false, op.pos || 0, 1);
       state.adWait = []; state.adHeld = false;
-      gestureNeeded = false; { const g = $("#gesture"); if (g) g.hidden = true; }
       if (player) { player.inAd = false; player.inAdSent = false; player._lt = null; player._adHits = 0; player.loadAt = now(); }
       hideUpNext();
       if (op.video && op.video.qid) state.queue = state.queue.filter(q => q.qid !== op.video.qid);

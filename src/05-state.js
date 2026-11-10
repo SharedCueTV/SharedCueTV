@@ -19,7 +19,6 @@ let filter = "all";
 let seeking = false;
 let lastCorrection = 0;
 let lastPlayCmd = 0;
-let gestureNeeded = false;
 let chatActive = false;
 let refreshWanted = false;  // frischen Stand anfordern (nach Verbindungsabbruch)
 let offlineSince = 0, reconnectT = null, backoff = 0, hiddenAt = 0;

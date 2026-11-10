@@ -95,7 +95,6 @@ $("#fwd10").onclick = () => userSeek(curPos() + 10);
 $("#skipBtn").onclick = () => { if (!state.queue.length) { toast("Die Warteschlange ist leer."); return; } const n = sortedQueue()[0]; send({ k: "load", video: n, pos: n.start || 0, playing: true }); };
 $("#resyncBtn").onclick = () => {
   if (!player || !player.ready) return;
-  if (gestureNeeded) resumeGesture();
   if (!player.live) player.seek(expectedPos());
   lastCorrection = now();
   transport && transport.send("hello", {}); // frischen Stand holen
@@ -118,15 +117,18 @@ seekEl.addEventListener("change", () => {
 seekEl.addEventListener("pointerup", () => setTimeout(() => seeking = false, 50));
 
 const volEl = $("#vol");
-function applyVol() {
-  const v = store.get("sc_vol", 80), m = store.get("sc_mute", false);
+function applyVolIcon() {
+  const v = store.get("sc_vol", 80), m = store.get("sc_mute", false) || autoMuted;
   setRange(volEl, m ? 0 : v);
   $("#volIcon").textContent = m || v === 0 ? "volume_off" : v < 50 ? "volume_down" : "volume_up";
-  player && player.ready && player.setVolume(v, m);
+}
+function applyVol() {
+  applyVolIcon();
+  player && player.ready && player.setVolume(store.get("sc_vol", 80), store.get("sc_mute", false) || autoMuted);
 }
 volEl.max = 100;
 volEl.addEventListener("input", () => { store.set("sc_vol", +volEl.value); store.set("sc_mute", +volEl.value === 0); applyVol(); });
-$("#muteBtn").onclick = () => { store.set("sc_mute", !store.get("sc_mute", false)); if (!store.get("sc_mute") && store.get("sc_vol", 80) === 0) store.set("sc_vol", 60); applyVol(); };
+$("#muteBtn").onclick = () => { if (now() - autoUnmutedAt < 1000) return; store.set("sc_mute", !store.get("sc_mute", false)); if (!store.get("sc_mute") && store.get("sc_vol", 80) === 0) store.set("sc_vol", 60); applyVol(); };
 applyVol();
 
 function toggleFs() {
@@ -135,8 +137,6 @@ function toggleFs() {
   else (st.requestFullscreen || st.webkitRequestFullscreen || (() => {})).call(st);
 }
 $("#fsBtn").onclick = toggleFs;
-$("#gestureBtn").onclick = resumeGesture;
-$("#gestureSkip").onclick = () => { $("#gesture").hidden = true; gestureNeeded = false; const n = sortedQueue()[0]; if (n) send({ k: "load", video: n, pos: n.start || 0, playing: true }); else send({ k: "pause", pos: expectedPos() }); };
 $("#adHoldGo").onclick = () => send({ k: "adClear" });
 
 $("#codeChip").onclick = () => copyInvite();
@@ -195,6 +195,7 @@ document.addEventListener("keydown", e => {
 });
 
 // Diagnose in der Browser-Konsole: __sharedcue()
-window.__sharedcue = () => ({ synced, leader: (leader() || {}).name, isLeader: isLeader(), people: people.map(p => p.name), video: vkey(state.video), loadedKey, pb: { ...state.pb }, expected: +expectedPos().toFixed(2), playerTime: player && player.ready ? +player.time().toFixed(2) : null, playing: player && player.ready ? player.isPlaying() : null, buffering: player && player.ready ? player.isBuffering() : null, ytState: player && player.p && player.p.getPlayerState ? player.p.getPlayerState() : null, gestureNeeded, autoMuted, lastCorrection: now() - lastCorrection, rate: RATE(),
+window.__sharedcue = () => ({ synced, leader: (leader() || {}).name, isLeader: isLeader(), people: people.map(p => p.name), video: vkey(state.video), loadedKey, pb: { ...state.pb }, expected: +expectedPos().toFixed(2), playerTime: player && player.ready ? +player.time().toFixed(2) : null, playing: player && player.ready ? player.isPlaying() : null, buffering: player && player.ready ? player.isBuffering() : null, ytState: player && player.p && player.p.getPlayerState ? player.p.getPlayerState() : null, autoMuted, lastCorrection: now() - lastCorrection, rate: RATE(),
   // für automatische Tests
   channel: room && room.channel, me: me.id, title: state.title, queue: state.queue.map(q => q.title), chat: state.chat.map(m => m.text), settings: { ...state.settings } });
+// Nur im Testmodus: „Mitschauen“ wie bei einem Fehlalarm einblenden
