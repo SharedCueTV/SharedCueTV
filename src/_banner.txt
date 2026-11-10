@@ -1,0 +1,7 @@
+/* SharedCue – synchrones Schauen für Freunde
+ * Architektur:
+ *  - Transport: Supabase Realtime (Broadcast + Presence) oder BroadcastChannel (Testmodus)
+ *  - Kein Server, keine Datenbank: Der Raumzustand lebt in den Browsern der Teilnehmer.
+ *    Neue Teilnehmer bekommen einen Snapshot vom "Leader" (wer am längsten drin ist).
+ *  - Alle Aktionen sind Ops, die an alle gehen und lokal sofort angewendet werden.
+ */

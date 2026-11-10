@@ -5,8 +5,11 @@
  *    Neue Teilnehmer bekommen einen Snapshot vom "Leader" (wer am längsten drin ist).
  *  - Alle Aktionen sind Ops, die an alle gehen und lokal sofort angewendet werden.
  */
+// AUTOMATISCH ERZEUGT aus src/*.js – nicht direkt bearbeiten, sondern src/ ändern und `npm run build` ausführen.
 (() => {
 "use strict";
+
+// ======================================================== src/01-helpers.js
 
 // ---------------------------------------------------------------- Helpers
 const $ = (s, r = document) => r.querySelector(s);
@@ -54,6 +57,7 @@ function loadScript(src) {
   return scripts[src];
 }
 
+// ======================================================== src/02-media-links.js
 // ---------------------------------------------------------------- Media links
 function parseMedia(raw) {
   let s = String(raw || "").trim();
@@ -145,6 +149,7 @@ const family = s => isTw(s) ? "tw" : (s === "tt" || s === "ig") ? "clips" : s ==
 const SRC_ICON = { yt: "play_arrow", twv: "bolt", twl: "bolt", tt: "music_note", ig: "photo_camera", file: "movie", live: "screen_share" };
 const SRC_CLASS = { yt: "yt", twv: "tw", twl: "tw", tt: "tt", ig: "ig", file: "fl", live: "lv" };
 
+// ======================================================== src/03-transport.js
 // ---------------------------------------------------------------- Transports
 class LocalTransport {
   constructor() { this.handlers = {}; this.peers = new Map(); this.kind = "local"; }
@@ -221,6 +226,7 @@ class SupabaseTransport {
   }
 }
 
+// ======================================================== src/04-players.js
 // ---------------------------------------------------------------- Players
 const YT_API = "https://www.youtube.com/iframe_api";
 let ytReady = null;
@@ -495,6 +501,7 @@ class LiveAdapter {
   destroy() { if (!this.local && this.el) this.el.srcObject = null; if (this.local && this.el) this.el.pause(); this.host.innerHTML = ""; this.ready = false; if (this.item && this.item.ref !== me.id) liveClose(this.item.ref); }
 }
 
+// ======================================================== src/05-state.js
 // ---------------------------------------------------------------- State
 const CFG = window.SHAREDCUE_CONFIG || {};
 const HAS_SUPA = !!(CFG.supabaseUrl && CFG.supabaseKey);
@@ -539,6 +546,7 @@ const score = it => Object.values(it.votes || {}).reduce((a, b) => a + b, 0);
 const sortedQueue = () => [...state.queue];
 const resortByVotes = () => { state.queue = [...state.queue].sort((a, b) => score(b) - score(a)); };
 
+// ======================================================== src/06-ops.js
 // ---------------------------------------------------------------- Ops
 function send(op) {
   op.by = me.id; op.name = me.name;
@@ -652,7 +660,7 @@ function applyOp(op, local) {
 }
 
 function onMessage(t, d, from) {
-  if (t === "op") { if (synced) applyOp(d, false); return; }
+  if (t === "op") { if (synced && validOp(d, from)) applyOp(d, false); return; }
   if (t === "hello") {
     // Der Leader (ohne den Neuen) schickt den Raumzustand
     const others = people.filter(p => p.id !== from);
@@ -668,9 +676,11 @@ function onMessage(t, d, from) {
   }
   if (t === "snap") {
     if (d.to !== me.id || (synced && !refreshWanted)) return;
+    const clean = cleanSnapshot(d.state);
+    if (!clean) return;
     const wasRefresh = synced && refreshWanted;
     synced = true; refreshWanted = false;
-    state = d.state;
+    state = clean;
     state.pb.at = now();
     if (state.poll) state.poll.endsAt = now() + (state.poll.leftMs || 0);
     mergeSavedStats();
@@ -687,6 +697,103 @@ function onMessage(t, d, from) {
   }
 }
 
+// ======================================================== src/06-validate.js
+// ---------------------------------------------------------------- Eingehende Daten prüfen
+// Jeder im Raum kann beliebige Nachrichten schicken. Bevor eine fremde Op angewendet wird,
+// prüfen wir Form, Typen und Längen und bremsen Spam. Ungültiges wird still verworfen.
+const MEDIA_SRCS = new Set(["yt", "ytl", "tw", "twv", "tt", "ig", "file", "live"]);
+const isStr = (v, max = 200) => typeof v === "string" && v.length <= max;
+const isOptStr = (v, max = 200) => v == null || isStr(v, max);
+const isNum = (v, lo = -1e9, hi = 1e9) => typeof v === "number" && isFinite(v) && v >= lo && v <= hi;
+const isOptNum = (v, lo, hi) => v == null || isNum(v, lo, hi);
+const isId = v => isStr(v, 64) && v.length > 0;
+const isOptBool = v => v == null || typeof v === "boolean";
+const validColor = c => c == null || (isStr(c, 40) && /^(#[0-9a-f]{3,8}|hsla?\([\d.,%\s]+\))$/i.test(c));
+
+function validItem(it) {
+  if (!it || typeof it !== "object") return false;
+  if (!isStr(it.src, 8) || !MEDIA_SRCS.has(it.src)) return false;
+  if (!isStr(it.ref, 2048) || !isOptStr(it.qid, 32) || !isOptStr(it.title, 300) || !isOptStr(it.author, 120)) return false;
+  if (!isOptStr(it.by, 64) || !isOptStr(it.byName, 40) || !isOptStr(it.kind, 16) || !isOptNum(it.start, 0, 1e6) || !isOptNum(it.dur, 0, 1e7)) return false;
+  if (it.thumb != null && !(it.thumb === "" || (isStr(it.thumb, 600) && /^https:\/\//.test(it.thumb)))) return false;
+  if (it.votes != null && (typeof it.votes !== "object" || Array.isArray(it.votes) || Object.keys(it.votes).length > 200)) return false;
+  if (it.p2p != null) {
+    const f = it.p2p;
+    if (typeof f !== "object" || !isId(f.fid) || !isId(f.owner) || !isNum(f.size, 0, 1e12) || !isOptStr(f.mime, 100)) return false;
+    if (!/^[\w-]+$/.test(f.fid) || !/^[\w-]+$/.test(f.owner)) return false;
+  }
+  return true;
+}
+
+const OP_RULES = {
+  load: op => (op.video == null || validItem(op.video)) && isOptNum(op.pos, -10, 1e7) && isOptBool(op.playing) && isOptStr(op.prev, 2100),
+  play: op => isNum(op.pos, -10, 1e7),
+  pause: op => isNum(op.pos, -10, 1e7),
+  seek: op => isNum(op.pos, -10, 1e7),
+  rate: op => isOptNum(op.pos, -10, 1e7) && isNum(op.rate, 0.25, 2),
+  qadd: op => validItem(op.item),
+  qaddMany: op => Array.isArray(op.items) && op.items.length <= 500 && op.items.every(validItem),
+  qdel: op => isStr(op.qid, 32),
+  qvote: op => isStr(op.qid, 32),
+  qmove: op => isStr(op.qid, 32) && isOptNum(op.to, 0, 10000),
+  qclear: () => true,
+  upnext: op => isStr(op.prev, 2100) && (op.video == null || validItem(op.video)) && isOptNum(op.secs, 0, 60),
+  upnextCancel: () => true,
+  ad: op => isOptBool(op.on),
+  adClear: () => true,
+  chat: op => !!op.msg && typeof op.msg === "object" && isStr(op.msg.text, 1000) && isOptStr(op.msg.id, 32) && isOptStr(op.msg.name, 40) && validColor(op.msg.color),
+  react: op => isStr(op.emoji, 16),
+  poll: op => isStr(op.pid, 32) && Array.isArray(op.options) && op.options.length >= 2 && op.options.length <= 6 && op.options.every(validItem) && isOptNum(op.secs, 5, 600),
+  pollVote: op => isStr(op.pid, 32) && isNum(op.idx, 0, 10),
+  pollEnd: op => isOptStr(op.pid, 32),
+  countdown: () => true,
+  voice: op => isStr(op.t, 16) && isOptStr(op.to, 64),
+  live: op => isStr(op.t, 16) && isOptStr(op.to, 64) && isOptStr(op.sid, 16),
+  fx: op => isStr(op.t, 16) && isOptStr(op.to, 64) && isOptStr(op.sid, 16) && (op.r == null || op.r === "v" || op.r === "o"),
+  buf: op => isStr(op.v, 2100) && isNum(op.end, 0, 1e7),
+  title: op => isStr(op.title, 200),
+  settings: op => !!op.settings && typeof op.settings === "object" && isOptBool(op.settings.voice) && isOptBool(op.settings.cam) && isOptStr(op.settings.fsCams, 16)
+};
+
+// Spam-Bremse je Absender: normale Ops 40 pro 5 s, Verbindungsaufbau (voice/live/fx) 400 pro 5 s
+const opBuckets = new Map();
+function rateOk(by, k) {
+  const sig = k === "voice" || k === "live" || k === "fx";
+  const key = by + (sig ? ":sig" : ""), limit = sig ? 400 : 40, t = now();
+  let b = opBuckets.get(key);
+  if (!b || t - b.start > 5000) { b = { start: t, n: 0, warned: false }; opBuckets.set(key, b); }
+  b.n++;
+  if (b.n > limit) { if (!b.warned) { b.warned = true; console.warn("SharedCue: zu viele Nachrichten von", by, "– werden kurz ignoriert"); } return false; }
+  return true;
+}
+
+function validOp(op, from) {
+  if (!op || typeof op !== "object" || Array.isArray(op)) return false;
+  if (!isStr(op.k, 24) || !Object.prototype.hasOwnProperty.call(OP_RULES, op.k)) return false;
+  if (!isId(op.by) || !isOptStr(op.name, 40)) return false;
+  if (from && op.by !== from) return false;          // Absender darf sich nicht als jemand anderes ausgeben
+  if (!rateOk(op.by, op.k)) return false;
+  try { return OP_RULES[op.k](op) === true; } catch { return false; }
+}
+
+// Snapshot vom Leader (beim Beitreten): grob prüfen und unbrauchbare Teile entfernen
+function cleanSnapshot(s) {
+  if (!s || typeof s !== "object") return null;
+  const out = { ...s };
+  out.queue = Array.isArray(s.queue) ? s.queue.filter(validItem).slice(0, 1000) : [];
+  out.chat = Array.isArray(s.chat) ? s.chat.filter(m => m && typeof m === "object" && isStr(m.text, 1000)).slice(-CHAT_MAX) : [];
+  out.video = s.video && validItem(s.video) ? s.video : null;
+  const pb = s.pb || {};
+  out.pb = { playing: !!pb.playing, pos: isNum(pb.pos, 0, 1e7) ? pb.pos : 0, at: 0, rate: isNum(pb.rate, 0.25, 2) ? pb.rate : 1 };
+  out.title = isStr(s.title, 200) ? s.title : "";
+  if (!s.settings || typeof s.settings !== "object") out.settings = { voice: true, cam: true };
+  if (!s.stats || typeof s.stats !== "object") out.stats = freshStats();
+  if (!Array.isArray(s.adWait)) out.adWait = [];
+  if (s.poll && (typeof s.poll !== "object" || !Array.isArray(s.poll.options) || !s.poll.options.every(validItem))) out.poll = null;
+  return out;
+}
+
+// ======================================================== src/07-sync.js
 // ---------------------------------------------------------------- Player sync
 const host = () => $("#playerHost");
 const playerCb = {
@@ -892,6 +999,7 @@ setInterval(() => {
   transport.send("tick", { v: vkey(state.video), pos, playing: state.pb.playing, rate: RATE() });
 }, TICK_MS);
 
+// ======================================================== src/08-render.js
 // ---------------------------------------------------------------- Rendering
 function renderAll() {
   renderHead(); renderPeople(); renderQueue(); renderChat(); renderNow(); renderSource(); renderAdHold(); renderPoll(); renderPollBar(); renderStageTitle();
@@ -1095,6 +1203,7 @@ setInterval(() => {
   } else { sk.style.setProperty("--b", "0%"); sk.parentElement.title = ""; }
 }, 250);
 
+// ======================================================== src/09-playback-extras.js
 // ---------------------------------------------------------------- Ladebalken
 const bufInfo = new Map();   // personId → {v, end, at}
 // Wie weit ist das aktuelle Video bei mir ab der aktuellen Stelle geladen (Sekunden)?
@@ -1220,6 +1329,7 @@ $("#qualMenu").addEventListener("click", e => {
   $("#qualMenu").hidden = true;
 });
 
+// ======================================================== src/10-voice.js
 // ---------------------------------------------------------------- Sprachchat (WebRTC, Signalisierung über den Raum)
 const ICE = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun.cloudflare.com:3478" }];
 const voice = { on: false, muted: false, stream: null, peers: new Map(), members: new Map(), ctx: null, meters: new Map(), speaking: new Set() };
@@ -1344,6 +1454,8 @@ function voiceSignal(op, local) {
   }
   renderPeople();
 }
+
+// ======================================================== src/11-webcams.js
 // ---------------------------------------------------------------- Webcams
 async function camToggle() {
   if (!voice.on) return;
@@ -1492,6 +1604,7 @@ $("#voiceMenu").addEventListener("input", e => {
 $("#voiceMenu").addEventListener("click", e => e.stopPropagation());
 document.addEventListener("click", () => { const m = $("#voiceMenu"); if (m) m.hidden = true; });
 
+// ======================================================== src/12-reconnect.js
 // ---------------------------------------------------------------- Verbindung halten
 function requestRefresh() {
   if (!transport || !room || people.length < 2) return;
@@ -1529,7 +1642,7 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("online", () => { if (room && offlineSince) scheduleReconnect(0); });
 window.addEventListener("offline", () => { if (room) { setLive(false, "offline"); if (!offlineSince) offlineSince = now(); } });
 
-
+// ======================================================== src/13-polls-stats.js
 // ---------------------------------------------------------------- Abstimmung
 let pollSel = null; // Set der ausgewählten qids im Auswahlmodus
 function pollWinner(po) {
@@ -1620,6 +1733,7 @@ function renderStats() {
     <p class="muted" style="font-size:12px;margin:8px 0 0">Die Statistik gilt für diesen Raum (Code ${esc(room.code)}) und bleibt in euren Browsern gespeichert.</p>`;
 }
 
+// ======================================================== src/14-live-share.js
 // ---------------------------------------------------------------- Live teilen (Bildschirm / eigene Datei)
 const bc = { active: false, stream: null, el: null, url: null, audioOnly: false, peers: new Map() };  // als Teilender
 const viewerPeers = new Map();  // als Zuschauer: sharerId → pc
@@ -1790,6 +1904,7 @@ $("#fileBtn").onclick = () => $("#fileInput").click();
 $("#fileInput").onchange = e => { const fs = [...(e.target.files || [])]; e.target.value = ""; if (!fs.length) return; if (P2P_OK) addFiles(fs); else startFile(fs[0]); };
 if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) $("#screenBtn").hidden = true;
 
+// ======================================================== src/15-p2p-files.js
 // ---------------------------------------------------------------- Eigene Dateien: Originaldatei direkt von PC zu PC
 // Zuschauer laden die Originaldatei stückweise per WebRTC-Datenkanal vom Teilenden (über sw.js).
 // Kein Neukodieren → volle Qualität, normal spulbar, landet wie Links in der Warteschlange.
@@ -1950,6 +2065,7 @@ async function fxFromSw(ev) {
   } catch { port.postMessage({ err: "connect" }); }
 }
 
+// ======================================================== src/16-ui-extras.js
 // ---------------------------------------------------------------- Zufallsnamen
 const NAME_ADJ = ["Flinker", "Müder", "Wilder", "Lässiger", "Chaotischer", "Hungriger", "Cooler", "Schläfriger", "Kichernder", "Mutiger", "Neugieriger", "Gemütlicher", "Verpeilter", "Funkelnder", "Grummeliger", "Tanzender", "Geheimer", "Fluffiger", "Epischer", "Sonniger"];
 const NAME_NOUN = ["Fuchs", "Pinguin", "Otter", "Waschbär", "Dachs", "Biber", "Igel", "Koala", "Panda", "Hamster", "Uhu", "Elch", "Lemur", "Tukan", "Gecko", "Yeti", "Kaktus", "Toast", "Keks", "Nacho", "Popcorn-Bär", "Kraken"];
@@ -2027,6 +2143,7 @@ $("#theaterBtn").onclick = () => {
   $("#theaterBtn").classList.toggle("live", document.body.classList.contains("theater"));
 };
 
+// ======================================================== src/17-fullscreen-cams.js
 // ---------------------------------------------------------------- Kameras im Vollbild
 const FS_MODES = { rail: "Leiste rechts", pip: "Frei verschiebbar", speaker: "Nur wer spricht", off: "Keine Kameras" };
 const fsMode = () => (state.settings && FS_MODES[state.settings.fsCams]) ? state.settings.fsCams : "rail";
@@ -2116,6 +2233,8 @@ $(".stage").addEventListener("mousemove", poke);
   const ro = new ResizeObserver(fit); [l, r, tb].forEach(e => ro.observe(e));
   for (const c of l.children) ro.observe(c);
 })();
+
+// ======================================================== src/18-mic-hotkey.js
 // ---------------------------------------------------------------- Mikro-Hotkey
 let hkCapture = false;
 function hotkeyLabel(hk) {
@@ -2129,6 +2248,8 @@ function renderHotkeyBtn() {
   b.classList.toggle("capturing", hkCapture);
 }
 $("#setHotkey").onclick = () => { hkCapture = !hkCapture; renderHotkeyBtn(); };
+
+// ======================================================== src/19-room.js
 // ---------------------------------------------------------------- Room lifecycle
 function genCode() {
   const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -2223,6 +2344,7 @@ function leaveRoom() {
 }
 window.addEventListener("pagehide", () => { transport && transport.leave(); });
 
+// ======================================================== src/20-actions.js
 // ---------------------------------------------------------------- Actions
 async function addLink(raw, inputEl) {
   const media = parseMedia(raw);
@@ -2291,6 +2413,7 @@ function buildReactBar() {
   $("#reactBar").innerHTML = EMOJIS.map(e => `<button type="button" data-e="${e}" aria-label="Reaktion ${e}">${e}</button>`).join("");
 }
 
+// ======================================================== src/21-wiring.js
 // ---------------------------------------------------------------- Wiring
 function selectLobbyTab(join) {
   $("#tabCreate").setAttribute("aria-selected", String(!join));
@@ -2488,8 +2611,11 @@ document.addEventListener("keydown", e => {
 });
 
 // Diagnose in der Browser-Konsole: __sharedcue()
-window.__sharedcue = () => ({ synced, leader: (leader() || {}).name, isLeader: isLeader(), people: people.map(p => p.name), video: vkey(state.video), loadedKey, pb: { ...state.pb }, expected: +expectedPos().toFixed(2), playerTime: player && player.ready ? +player.time().toFixed(2) : null, playing: player && player.ready ? player.isPlaying() : null, buffering: player && player.ready ? player.isBuffering() : null, ytState: player && player.p && player.p.getPlayerState ? player.p.getPlayerState() : null, gestureNeeded, lastCorrection: now() - lastCorrection, rate: RATE() });
+window.__sharedcue = () => ({ synced, leader: (leader() || {}).name, isLeader: isLeader(), people: people.map(p => p.name), video: vkey(state.video), loadedKey, pb: { ...state.pb }, expected: +expectedPos().toFixed(2), playerTime: player && player.ready ? +player.time().toFixed(2) : null, playing: player && player.ready ? player.isPlaying() : null, buffering: player && player.ready ? player.isBuffering() : null, ytState: player && player.p && player.p.getPlayerState ? player.p.getPlayerState() : null, gestureNeeded, lastCorrection: now() - lastCorrection, rate: RATE(),
+  // für automatische Tests
+  channel: room && room.channel, me: me.id, title: state.title, queue: state.queue.map(q => q.title), chat: state.chat.map(m => m.text), settings: { ...state.settings } });
 
+// ======================================================== src/22-boot.js
 // ---------------------------------------------------------------- Boot
 function boot() {
   $("#modeNote").hidden = HAS_SUPA;
