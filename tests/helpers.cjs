@@ -3,9 +3,9 @@
 const { chromium } = require("playwright");
 const { start } = require("../tools/serve.cjs");
 
-async function setup(port) {
+async function setup(port, opts = {}) {
   const server = await start(port, { local: true });
-  const browser = await chromium.launch({ args: ["--autoplay-policy=no-user-gesture-required", "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"] });
+  const browser = await chromium.launch({ args: [opts.realAutoplay ? "--autoplay-policy=document-user-activation-required" : "--autoplay-policy=no-user-gesture-required", "--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"] });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, permissions: ["microphone", "camera"] });
   const errors = [];
   const base = `http://127.0.0.1:${port}/`;

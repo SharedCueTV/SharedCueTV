@@ -281,6 +281,7 @@ class YTAdapter {
   isPlaying() { return this.ready && this.p.getPlayerState && this.p.getPlayerState() === 1; }
   isBuffering() { return this.ready && this.p.getPlayerState && this.p.getPlayerState() === 3; }
   setVolume(v, muted) { if (!this.ready) return; this.p.setVolume(v); muted ? this.p.mute() : this.p.unMute(); }
+  isMuted() { return this.ready && this.p.isMuted ? this.p.isMuted() : false; }
   rate() { return this.ready && this.p.getPlaybackRate ? this.p.getPlaybackRate() || 1 : 1; }
   setRate(r) { if (!this.ready) return; this.setRateTo = r; this.p.setPlaybackRate(r); }
   destroy() { try { this.p && this.p.destroy(); } catch {} this.host.innerHTML = ""; }
@@ -441,6 +442,7 @@ class FileAdapter {
   isPlaying() { return !!this.el && !this.el.paused && !this.el.ended; }
   isBuffering() { return !!this.el && !this.el.paused && this.el.readyState < 3; }
   setVolume(v, muted) { if (!this.el) return; this.el.volume = clamp(v / 100, 0, 1); this.el.muted = !!muted; }
+  isMuted() { return !!this.el && this.el.muted; }
   rate() { return this.el ? this.el.playbackRate : 1; }
   setRate(r) { if (this.el) this.el.playbackRate = r; }
   destroy() { if (this.el) { this.el.pause(); this.el.removeAttribute("src"); this.el.load(); } this.host.innerHTML = ""; this.ready = false; }
@@ -822,8 +824,39 @@ const playerCb = {
     toast(msg, 4000);
     if (isLeader() && state.video) { const k = vkey(state.video); setTimeout(() => playNext(k), 3000); }
   },
-  volume(p) { const v = store.get("sc_vol", 80), m = store.get("sc_mute", false); p.setVolume(v, m); }
+  volume(p) {
+    const v = store.get("sc_vol", 80), m = store.get("sc_mute", false);
+    // Noch kein Klick auf der Seite (z. B. nach F5 automatisch wieder im Raum) → Browser blockiert Ton-Autoplay, also gleich stumm starten
+    if (!m && !autoMuted && state.pb.playing && MUTE_OK[p.kind] && navigator.userActivation && !navigator.userActivation.hasBeenActive) setAutoMute(true, true);
+    p.setVolume(v, m || autoMuted);
+  }
 };
+
+// Stumm weiterschauen statt „Mitschauen“-Klick: stummes Autoplay erlauben alle Browser.
+// Der erste Klick/Tastendruck irgendwo auf der Seite schaltet den Ton wieder ein.
+const MUTE_OK = { yt: 1, tw: 1, tt: 1, file: 1 };
+let autoMuted = false, autoMuteFails = 0, autoMutedAt = 0;
+function setAutoMute(on, quiet) {
+  autoMuted = on; autoMutedAt = now();
+  const h = $("#soundHint");
+  if (h) {
+    h.hidden = !on;
+    $("#soundHintTxt").textContent = autoMuteFails > 1 ? "Ton im Video-Player einschalten" : "Ton einschalten";
+  }
+  if (!quiet && player && player.ready) playerCb.volume(player);
+}
+function unmuteByUser() {
+  if (!autoMuted || autoMuteFails > 1) return;
+  setAutoMute(false);
+  // Manche Browser (Safari) pausieren beim Ton-Einschalten ohne Klick im Player → dann wieder stumm
+  setTimeout(() => {
+    if (!autoMuted && player && player.ready && state.pb.playing && !player.inAd && !player.isPlaying() && !player.isBuffering()) {
+      autoMuteFails++; setAutoMute(true); player.play();
+    }
+  }, 1500);
+}
+document.addEventListener("pointerdown", unmuteByUser, true);
+document.addEventListener("keydown", unmuteByUser, true);
 
 async function syncPlayer(force) {
   const v = state.video;
@@ -912,7 +945,13 @@ function checkBlocked() {
   if (!player || !player.ready || player.manual || player.inAd || !state.pb.playing) return;
   detectAd(); if (player.inAd) return;
   if (player.kind === "tw" && !player.blocked && player.isBuffering()) return;
-  if (!player.isPlaying() && !player.isBuffering()) showGesture();
+  if (player.isPlaying() || player.isBuffering()) { player._retried = 0; return; }
+  // Wer schon auf der Seite geklickt hat (z. B. „Beitreten“), darf mit Ton abspielen – dann lädt der Player
+  // nur langsam oder es läuft Werbung. Also weiter versuchen statt stumm schalten oder „Mitschauen“ zeigen.
+  const clicked = !navigator.userActivation || navigator.userActivation.hasBeenActive;
+  if ((player._retried || 0) < (clicked ? 5 : 1)) { player._retried = (player._retried || 0) + 1; player.play(); setTimeout(checkBlocked, 2000); return; }
+  player._retried = 0;
+  showGesture();
 }
 
 function playNext(prevKey, withCountdown) {
@@ -950,6 +989,11 @@ function userSeek(t) {
   send({ k: "seek", pos: t });
 }
 function showGesture() {
+  // Blockiert? Zuerst stumm abspielen – erst wenn auch das nicht klappt, braucht es den „Mitschauen“-Klick
+  if (player && player.ready && !player.manual && MUTE_OK[player.kind] && !autoMuted && !store.get("sc_mute", false)) {
+    setAutoMute(true); player.play(); lastPlayCmd = now(); setTimeout(checkBlocked, 2500);
+    return;
+  }
   gestureNeeded = true;
   const v = state.video;
   $("#gestureYt").hidden = !(v && v.src === "yt");
@@ -979,6 +1023,8 @@ setInterval(() => {
 setInterval(() => {
   if (!room || !synced) return;
   reportAd();
+  // Ton direkt im YouTube-Player eingeschaltet → Hinweis weg
+  if (autoMuted && player && player.ready && player.isMuted && now() - autoMutedAt > 3000 && !player.isMuted()) setAutoMute(false, true);
   enforce(false);
   updateDrift();
   renderAdHold();
@@ -2611,7 +2657,7 @@ document.addEventListener("keydown", e => {
 });
 
 // Diagnose in der Browser-Konsole: __sharedcue()
-window.__sharedcue = () => ({ synced, leader: (leader() || {}).name, isLeader: isLeader(), people: people.map(p => p.name), video: vkey(state.video), loadedKey, pb: { ...state.pb }, expected: +expectedPos().toFixed(2), playerTime: player && player.ready ? +player.time().toFixed(2) : null, playing: player && player.ready ? player.isPlaying() : null, buffering: player && player.ready ? player.isBuffering() : null, ytState: player && player.p && player.p.getPlayerState ? player.p.getPlayerState() : null, gestureNeeded, lastCorrection: now() - lastCorrection, rate: RATE(),
+window.__sharedcue = () => ({ synced, leader: (leader() || {}).name, isLeader: isLeader(), people: people.map(p => p.name), video: vkey(state.video), loadedKey, pb: { ...state.pb }, expected: +expectedPos().toFixed(2), playerTime: player && player.ready ? +player.time().toFixed(2) : null, playing: player && player.ready ? player.isPlaying() : null, buffering: player && player.ready ? player.isBuffering() : null, ytState: player && player.p && player.p.getPlayerState ? player.p.getPlayerState() : null, gestureNeeded, autoMuted, lastCorrection: now() - lastCorrection, rate: RATE(),
   // für automatische Tests
   channel: room && room.channel, me: me.id, title: state.title, queue: state.queue.map(q => q.title), chat: state.chat.map(m => m.text), settings: { ...state.settings } });
 

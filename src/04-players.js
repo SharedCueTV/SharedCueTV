@@ -52,6 +52,7 @@ class YTAdapter {
   isPlaying() { return this.ready && this.p.getPlayerState && this.p.getPlayerState() === 1; }
   isBuffering() { return this.ready && this.p.getPlayerState && this.p.getPlayerState() === 3; }
   setVolume(v, muted) { if (!this.ready) return; this.p.setVolume(v); muted ? this.p.mute() : this.p.unMute(); }
+  isMuted() { return this.ready && this.p.isMuted ? this.p.isMuted() : false; }
   rate() { return this.ready && this.p.getPlaybackRate ? this.p.getPlaybackRate() || 1 : 1; }
   setRate(r) { if (!this.ready) return; this.setRateTo = r; this.p.setPlaybackRate(r); }
   destroy() { try { this.p && this.p.destroy(); } catch {} this.host.innerHTML = ""; }
@@ -212,6 +213,7 @@ class FileAdapter {
   isPlaying() { return !!this.el && !this.el.paused && !this.el.ended; }
   isBuffering() { return !!this.el && !this.el.paused && this.el.readyState < 3; }
   setVolume(v, muted) { if (!this.el) return; this.el.volume = clamp(v / 100, 0, 1); this.el.muted = !!muted; }
+  isMuted() { return !!this.el && this.el.muted; }
   rate() { return this.el ? this.el.playbackRate : 1; }
   setRate(r) { if (this.el) this.el.playbackRate = r; }
   destroy() { if (this.el) { this.el.pause(); this.el.removeAttribute("src"); this.el.load(); } this.host.innerHTML = ""; this.ready = false; }
