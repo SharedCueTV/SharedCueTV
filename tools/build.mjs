@@ -9,23 +9,25 @@ import { dirname, join } from "node:path";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const check = process.argv.includes("--check");
 const src = join(root, "src");
+// Zeilenenden vereinheitlichen (Windows-CRLF zu LF), damit der Hash lokal und auf GitHub gleich ist
+const read = p => readFileSync(p, "utf8").replace(/\r\n/g, "\n");
 const files = readdirSync(src).filter(f => /^\d\d-.*\.js$/.test(f)).sort();
 
-let out = readFileSync(join(src, "_banner.txt"), "utf8");
+let out = read(join(src, "_banner.txt"));
 out += "// AUTOMATISCH ERZEUGT aus src/*.js – nicht direkt bearbeiten, sondern src/ ändern und `npm run build` ausführen.\n";
 out += '(() => {\n"use strict";\n';
-for (const f of files) out += `\n// ======================================================== src/${f}\n` + readFileSync(join(src, f), "utf8");
+for (const f of files) out += `\n// ======================================================== src/${f}\n` + read(join(src, f));
 out += "})();\n";
 
 // Cache-Buster: Hash über app.js + styles.css + sw.js → ?v=<hash> in index.html
-const css = readFileSync(join(root, "styles.css"), "utf8");
+const css = read(join(root, "styles.css"));
 const ver = createHash("sha256").update(out).update(css).digest("hex").slice(0, 8);
 const htmlPath = join(root, "index.html");
-const html = readFileSync(htmlPath, "utf8");
+const html = read(htmlPath);
 const newHtml = html.replace(/\?v=[\w]+/g, "?v=" + ver);
 
 if (check) {
-  const ok = readFileSync(join(root, "app.js"), "utf8") === out && html === newHtml;
+  const ok = read(join(root, "app.js")) === out && html === newHtml;
   if (!ok) { console.error("✗ app.js oder index.html ist nicht aktuell – bitte `npm run build` ausführen."); process.exit(1); }
   console.log("✓ Build ist aktuell (v=" + ver + ")");
 } else {
