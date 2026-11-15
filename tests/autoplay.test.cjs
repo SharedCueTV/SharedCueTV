@@ -20,7 +20,7 @@ const noPopups = async () => {
 };
 
 test("Normal beigetreten (Klick auf „Beitreten“): laufendes Video läuft einfach mit Ton", async () => {
-  await addGeneratedVideos(A, [{ name: "Film", secs: 50, w: 640, h: 360 }]);
+  await addGeneratedVideos(A, [{ name: "Film", secs: 50, w: 640, h: 360 }, { name: "Zwei", secs: 8, w: 320, h: 180 }]);
   await until(B, () => { const v = document.querySelector("#playerHost video"); return v && v.currentTime > 1; }, null, 80000);
   const v = await bVideo(), d = await diag(B);
   assert.equal(v.paused, false);
@@ -33,11 +33,12 @@ test("Nach F5 ohne Klick: Video läuft weiter (stumm), ohne Fenster", async () =
   await B.reload();
   // Nicht abfragen, solange der Player startet: Playwright-evaluate zählt sonst als Klick (Nutzer-Aktivierung)
   await B.waitForTimeout(9000);
-  const v = await bVideo(), d = await diag(B);
-  assert.ok(v && !v.paused && v.t > 0.5, "Video läuft nicht: " + JSON.stringify(v));
-  assert.equal(v.muted, true);
-  assert.equal(d.autoMuted, true);
-  assert.equal(await B.textContent("#volIcon"), "volume_off");
+  // alles in einer Abfrage – jede Abfrage zählt für den Browser als Klick
+  const r = await B.evaluate(() => { const v = document.querySelector("#playerHost video"); return { v: v && { t: v.currentTime, paused: v.paused, muted: v.muted }, autoMuted: __sharedcue().autoMuted, icon: document.querySelector("#volIcon").textContent }; });
+  assert.ok(r.v && !r.v.paused && r.v.t > 0.5, "Video läuft nicht: " + JSON.stringify(r.v));
+  assert.equal(r.v.muted, true);
+  assert.equal(r.autoMuted, true);
+  assert.equal(r.icon, "volume_off");
   await noPopups();
 });
 
@@ -47,6 +48,14 @@ test("Erster Tastendruck schaltet den Ton ein, Video läuft weiter", async () =>
   await B.waitForTimeout(2000);
   assert.equal((await bVideo()).paused, false);
   assert.notEqual(await B.textContent("#volIcon"), "volume_off");
+});
+
+test("Nach F5: Klick direkt im Player (ohne Klick auf die Seite) hebt das Stumm auf", async () => {
+  await B.reload();
+  await B.waitForTimeout(9000);
+  // Diese Abfrage wirkt wie ein Klick in den YouTube-Player: Aktivierung, aber kein Klick-Ereignis auf der Seite
+  assert.equal(await B.evaluate(() => __sharedcue().autoMuted), true);
+  await until(B, () => !__sharedcue().autoMuted && !document.querySelector("#playerHost video").muted, null, 4000);
 });
 
 test("Nach F5: Klick auf den Lautsprecher-Knopf schaltet den Ton ein (nicht gleich wieder aus)", async () => {
@@ -67,6 +76,16 @@ test("Selbst stumm geschaltet + F5: Video läuft, ohne Fenster", async () => {
   const v = await bVideo();
   assert.ok(v && !v.paused && v.t > 0.5, "Video läuft nicht: " + JSON.stringify(v));
   await noPopups();
+});
+
+test("Eingestellte Lautstärke bleibt beim nächsten Video", async () => {
+  await B.evaluate(() => { const s = document.querySelector("#vol"); s.value = "30"; s.dispatchEvent(new Event("input", { bubbles: true })); });
+  const before = (await diag(B)).video;
+  await A.click("#skipBtn");
+  await until(B, prev => __sharedcue().video !== prev && __sharedcue().playing, before, 20000);
+  await B.waitForTimeout(3000);
+  const r = await B.evaluate(() => { const v = document.querySelector("#playerHost video"); return { vol: Math.round(v.volume * 100), muted: v.muted }; });
+  assert.deepEqual(r, { vol: 30, muted: false });
 });
 
 test("Keine JavaScript-Fehler auf den Seiten", () => { assert.deepEqual(env.errors, []); });

@@ -245,7 +245,7 @@ class YTAdapter {
   async load(ref, pos, playing) {
     await loadYT();
     this.ref = ref;
-    this.started = false; this.ccDone = false; this.loadAt = this.cmdAt = now();
+    this.started = false; this.ccDone = false; this._volOk = false; this.loadAt = this.cmdAt = now();
     if (this.p && this.ready) {
       if (playing) this.p.loadVideoById({ videoId: ref, startSeconds: pos });
       else this.p.cueVideoById({ videoId: ref, startSeconds: pos });
@@ -280,8 +280,9 @@ class YTAdapter {
   duration() { return this.ready && this.p.getDuration ? this.p.getDuration() || 0 : 0; }
   isPlaying() { return this.ready && this.p.getPlayerState && this.p.getPlayerState() === 1; }
   isBuffering() { return this.ready && this.p.getPlayerState && this.p.getPlayerState() === 3; }
-  setVolume(v, muted) { if (!this.ready) return; this.p.setVolume(v); muted ? this.p.mute() : this.p.unMute(); }
+  setVolume(v, muted) { if (!this.ready) return; this.volAt = now(); this.p.setVolume(v); muted ? this.p.mute() : this.p.unMute(); }
   isMuted() { return this.ready && this.p.isMuted ? this.p.isMuted() : false; }
+  vol() { return this.ready && this.p.getVolume ? this.p.getVolume() : null; }
   rate() { return this.ready && this.p.getPlaybackRate ? this.p.getPlaybackRate() || 1 : 1; }
   setRate(r) { if (!this.ready) return; this.setRateTo = r; this.p.setPlaybackRate(r); }
   destroy() { try { this.p && this.p.destroy(); } catch {} this.host.innerHTML = ""; }
@@ -441,8 +442,9 @@ class FileAdapter {
   duration() { return this.el && isFinite(this.el.duration) ? this.el.duration : (this.item && this.item.dur) || 0; }
   isPlaying() { return !!this.el && !this.el.paused && !this.el.ended; }
   isBuffering() { return !!this.el && !this.el.paused && this.el.readyState < 3; }
-  setVolume(v, muted) { if (!this.el) return; this.el.volume = clamp(v / 100, 0, 1); this.el.muted = !!muted; }
+  setVolume(v, muted) { if (!this.el) return; this.volAt = now(); this.el.volume = clamp(v / 100, 0, 1); this.el.muted = !!muted; }
   isMuted() { return !!this.el && this.el.muted; }
+  vol() { return this.el ? Math.round(this.el.volume * 100) : null; }
   rate() { return this.el ? this.el.playbackRate : 1; }
   setRate(r) { if (this.el) this.el.playbackRate = r; }
   destroy() { if (this.el) { this.el.pause(); this.el.removeAttribute("src"); this.el.load(); } this.host.innerHTML = ""; this.ready = false; }
@@ -824,7 +826,7 @@ const playerCb = {
   volume(p) {
     const v = store.get("sc_vol", 80), m = store.get("sc_mute", false);
     // Noch kein Klick auf der Seite (z. B. nach F5 automatisch wieder im Raum) → Browser blockiert Ton-Autoplay, also gleich stumm starten
-    if (!m && !autoMuted && state.pb.playing && MUTE_OK[p.kind] && navigator.userActivation && !navigator.userActivation.hasBeenActive) setAutoMute(true, true);
+    if (!m && !autoMuted && state.pb.playing && MUTE_OK[p.kind] && !hasClicked()) setAutoMute(true, true);
     p.setVolume(v, m || autoMuted);
   }
 };
@@ -833,6 +835,8 @@ const playerCb = {
 // ohne Fenster, ohne Hinweis. Der erste Klick/Tastendruck irgendwo schaltet den Ton wieder ein.
 const MUTE_OK = { yt: 1, tw: 1, tt: 1, file: 1, live: 1 };
 let autoMuted = false, autoMuteFails = 0, autoMutedAt = 0;
+// Hat der Nutzer schon irgendwo auf der Seite (auch im YouTube-Player) geklickt? Dann ist Ton erlaubt.
+const hasClicked = () => !navigator.userActivation || navigator.userActivation.hasBeenActive;
 function setAutoMute(on, quiet) {
   autoMuted = on; autoMutedAt = now();
   if (!quiet) applyVol(); else applyVolIcon();
@@ -942,7 +946,7 @@ function checkBlocked() {
   if (player.isPlaying() || player.isBuffering()) { player._retried = 0; return; }
   // Wer schon auf der Seite geklickt hat (z. B. „Beitreten“), darf mit Ton abspielen – dann lädt der Player
   // nur langsam oder es läuft Werbung. Also weiter versuchen statt stumm schalten oder „Mitschauen“ zeigen.
-  const clicked = !navigator.userActivation || navigator.userActivation.hasBeenActive;
+  const clicked = hasClicked();
   if ((player._retried || 0) < (clicked ? 5 : 1)) { player._retried = (player._retried || 0) + 1; player.play(); setTimeout(checkBlocked, 2000); return; }
   player._retried = 0;
   handleBlocked();
@@ -981,10 +985,30 @@ function userSeek(t) {
   t = clamp(t, 0, d ? d - 0.5 : t);
   send({ k: "seek", pos: t });
 }
+// Lautstärke bleibt über alle Videos gleich
+function syncVolume() {
+  const p = player;
+  if (!p || !p.ready || !p.isMuted || p.manual) return;
+  // Inzwischen geklickt (z. B. direkt im YouTube-Player) → automatisches Stumm wieder aufheben
+  if (autoMuted && hasClicked() && autoMuteFails <= 1) { unmuteByUser(); return; }
+  if (autoMuted || !p.isPlaying()) return;
+  const v = store.get("sc_vol", 80), m = store.get("sc_mute", false);
+  const pv = p.vol ? p.vol() : null, pm = p.isMuted();
+  const off = pm !== m || (pv != null && Math.abs(pv - v) > 1);
+  // Lautstärke mitten im Video direkt im YouTube-Player geändert (vorher passte alles) → merken, gilt dann auch für die nächsten Videos.
+  // Nicht beim Videostart: da schaltet YouTube manchmal selbst stumm – das wird unten korrigiert, nicht übernommen.
+  const steady = p._volOk && now() - (p.loadAt || 0) > 6000 && now() - (p.volAt || 0) > 1500;
+  if (off && steady && p.kind === "yt" && userInPlayer()) { store.set("sc_vol", pv); store.set("sc_mute", pm); applyVolIcon(); p._volOk = true; return; }
+  p._volOk = !off;
+  // Player hat sich selbst stumm geschaltet oder die Lautstärke verstellt (z. B. YouTube beim neuen Video) → zurücksetzen
+  if (off && hasClicked() && now() - (p.volAt || 0) > 1500) { playerCb.volume(p); p._volOk = true; }
+}
+
 // Abspielen blockiert → stumm schalten (erlaubt jeder Browser) und weiter versuchen. Kein Fenster.
 function handleBlocked() {
   if (!player || !player.ready || player.manual) return;
-  if (MUTE_OK[player.kind] && !autoMuted && !store.get("sc_mute", false)) setAutoMute(true);
+  // Nur stumm schalten, solange noch nicht geklickt wurde – danach liegt es nie am Ton (sondern an Werbung/Netz)
+  if (MUTE_OK[player.kind] && !autoMuted && !store.get("sc_mute", false) && !hasClicked()) setAutoMute(true);
   player.play(); lastPlayCmd = now();
 }
 
@@ -1009,6 +1033,7 @@ setInterval(() => {
   // „Mitschauen“ steht noch da, aber das Video läuft inzwischen (z. B. nach Werbung oder langsamem Laden) → Fenster weg
   // Ton direkt im YouTube-Player eingeschaltet → Hinweis weg
   if (autoMuted && player && player.ready && player.isMuted && now() - autoMutedAt > 3000 && !player.isMuted()) setAutoMute(false, true);
+  syncVolume();
   enforce(false);
   updateDrift();
   renderAdHold();
@@ -2641,7 +2666,7 @@ document.addEventListener("keydown", e => {
 });
 
 // Diagnose in der Browser-Konsole: __sharedcue()
-window.__sharedcue = () => ({ synced, leader: (leader() || {}).name, isLeader: isLeader(), people: people.map(p => p.name), video: vkey(state.video), loadedKey, pb: { ...state.pb }, expected: +expectedPos().toFixed(2), playerTime: player && player.ready ? +player.time().toFixed(2) : null, playing: player && player.ready ? player.isPlaying() : null, buffering: player && player.ready ? player.isBuffering() : null, ytState: player && player.p && player.p.getPlayerState ? player.p.getPlayerState() : null, autoMuted, lastCorrection: now() - lastCorrection, rate: RATE(),
+window.__sharedcue = () => ({ synced, leader: (leader() || {}).name, isLeader: isLeader(), people: people.map(p => p.name), video: vkey(state.video), loadedKey, pb: { ...state.pb }, expected: +expectedPos().toFixed(2), playerTime: player && player.ready ? +player.time().toFixed(2) : null, playing: player && player.ready ? player.isPlaying() : null, buffering: player && player.ready ? player.isBuffering() : null, ytState: player && player.p && player.p.getPlayerState ? player.p.getPlayerState() : null, autoMuted, volume: player && player.ready && player.vol ? player.vol() : null, muted: player && player.ready && player.isMuted ? player.isMuted() : null, lastCorrection: now() - lastCorrection, rate: RATE(),
   // für automatische Tests
   channel: room && room.channel, me: me.id, title: state.title, queue: state.queue.map(q => q.title), chat: state.chat.map(m => m.text), settings: { ...state.settings } });
 // Nur im Testmodus: „Mitschauen“ wie bei einem Fehlalarm einblenden

@@ -16,7 +16,7 @@ class YTAdapter {
   async load(ref, pos, playing) {
     await loadYT();
     this.ref = ref;
-    this.started = false; this.ccDone = false; this.loadAt = this.cmdAt = now();
+    this.started = false; this.ccDone = false; this._volOk = false; this.loadAt = this.cmdAt = now();
     if (this.p && this.ready) {
       if (playing) this.p.loadVideoById({ videoId: ref, startSeconds: pos });
       else this.p.cueVideoById({ videoId: ref, startSeconds: pos });
@@ -51,8 +51,9 @@ class YTAdapter {
   duration() { return this.ready && this.p.getDuration ? this.p.getDuration() || 0 : 0; }
   isPlaying() { return this.ready && this.p.getPlayerState && this.p.getPlayerState() === 1; }
   isBuffering() { return this.ready && this.p.getPlayerState && this.p.getPlayerState() === 3; }
-  setVolume(v, muted) { if (!this.ready) return; this.p.setVolume(v); muted ? this.p.mute() : this.p.unMute(); }
+  setVolume(v, muted) { if (!this.ready) return; this.volAt = now(); this.p.setVolume(v); muted ? this.p.mute() : this.p.unMute(); }
   isMuted() { return this.ready && this.p.isMuted ? this.p.isMuted() : false; }
+  vol() { return this.ready && this.p.getVolume ? this.p.getVolume() : null; }
   rate() { return this.ready && this.p.getPlaybackRate ? this.p.getPlaybackRate() || 1 : 1; }
   setRate(r) { if (!this.ready) return; this.setRateTo = r; this.p.setPlaybackRate(r); }
   destroy() { try { this.p && this.p.destroy(); } catch {} this.host.innerHTML = ""; }
@@ -212,8 +213,9 @@ class FileAdapter {
   duration() { return this.el && isFinite(this.el.duration) ? this.el.duration : (this.item && this.item.dur) || 0; }
   isPlaying() { return !!this.el && !this.el.paused && !this.el.ended; }
   isBuffering() { return !!this.el && !this.el.paused && this.el.readyState < 3; }
-  setVolume(v, muted) { if (!this.el) return; this.el.volume = clamp(v / 100, 0, 1); this.el.muted = !!muted; }
+  setVolume(v, muted) { if (!this.el) return; this.volAt = now(); this.el.volume = clamp(v / 100, 0, 1); this.el.muted = !!muted; }
   isMuted() { return !!this.el && this.el.muted; }
+  vol() { return this.el ? Math.round(this.el.volume * 100) : null; }
   rate() { return this.el ? this.el.playbackRate : 1; }
   setRate(r) { if (this.el) this.el.playbackRate = r; }
   destroy() { if (this.el) { this.el.pause(); this.el.removeAttribute("src"); this.el.load(); } this.host.innerHTML = ""; this.ready = false; }
