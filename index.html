@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SharedCueTV – Gemeinsam schauen</title>
 <meta name="description" content="Videos und Streams mit Freunden synchron schauen.">
-<meta name="theme-color" content="#0b0f19">
+<meta name="theme-color" content="#0E1024">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta property="og:type" content="website">
@@ -18,69 +18,98 @@
 <meta property="og:url" content="https://sharedcuetv.github.io/SharedCueTV/">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://sharedcuetv.github.io/SharedCueTV/og-image.jpg">
-<link rel="preload" href="fonts/material-symbols-subset.woff2?v=62cb413d" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=62cb413d">
+<link rel="preload" href="fonts/material-symbols-subset.woff2?v=0b61e75b" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css?v=0b61e75b">
 </head>
 <body>
 <div class="glow-bg" aria-hidden="true"></div>
 
 <!-- ================= LOBBY ================= -->
-<main id="lobby" class="lobby">
-  <section class="panel lobby-card" aria-labelledby="lobbyTitle">
-    <div class="brand"><img src="icon.svg" alt=""><span class="brand-name">Shared<span>Cue</span><b class="tv">TV</b></span></div>
-    <div>
-      <h1 id="lobbyTitle">Gemeinsam schauen.</h1>
-      <p class="lead">YouTube, Twitch, TikTok und Reels mit Freunden – synchron, mit Chat und Warteschlange.</p>
-    </div>
-    <div class="tabs" role="tablist" aria-label="Raum erstellen oder beitreten">
-      <button class="tab" role="tab" id="tabCreate" aria-selected="true" aria-controls="formCreate">Raum erstellen</button>
-      <button class="tab" role="tab" id="tabJoin" aria-selected="false" aria-controls="formJoin">Beitreten</button>
-    </div>
+<main id="lobby" class="lobby lobby-c2">
+  <div class="lobby-wrap">
+    <header class="lobby-head">
+      <div class="brand"><span class="brand-ico"><img src="icon.svg" alt=""></span><span class="brand-name">SharedCue<b class="tv">TV</b></span></div>
+      <h1 id="lobbyTitle">Kinoabend mit Freunden, egal wo ihr sitzt.</h1>
+      <p class="lead">YouTube, Twitch, TikTok, Reels und eigene Videos laufen bei allen gleichzeitig. Mit Chat, Warteschlange und Sprachchat.</p>
+      <ul class="platforms" aria-label="Funktioniert mit">
+        <li class="pf pf-yt" title="YouTube"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg><span class="sr-only">YouTube</span></li>
+        <li class="pf pf-tw" title="Twitch"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11.571 4.714h1.715v5.143H11.57zm4.715 0H18v5.143h-1.714zM6 0L1.714 4.286v15.428h5.143V24l4.286-4.286h3.428L22.286 12V0zm14.571 11.143l-3.428 3.428h-3.429l-3 3v-3H6.857V1.714h13.714Z"/></svg><span class="sr-only">Twitch</span></li>
+        <li class="pf pf-tt" title="TikTok"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg><span class="sr-only">TikTok</span></li>
+        <li class="pf pf-ig" title="Instagram Reels"><svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="pfIg" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#FEDA75"/><stop offset=".35" stop-color="#FA7E1E"/><stop offset=".6" stop-color="#D62976"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs><rect x="2" y="2" width="20" height="20" rx="5.8" fill="none" stroke="url(#pfIg)" stroke-width="2.2"/><circle cx="12" cy="12" r="4.4" fill="none" stroke="url(#pfIg)" stroke-width="2.2"/><circle cx="17.6" cy="6.4" r="1.4" fill="url(#pfIg)"/></svg><span class="sr-only">Instagram Reels</span></li>
+        <li class="pf pf-file" title="Eigene Videos vom Rechner"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M6 2.8h8l5 5V20a1.2 1.2 0 0 1-1.2 1.2H6A1.2 1.2 0 0 1 4.8 20V4A1.2 1.2 0 0 1 6 2.8z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M14 2.8V8h5"/><path fill="currentColor" d="M10 11.2v6.4l5-3.2z"/></svg><span class="sr-only">Eigene Videos vom Rechner</span></li>
+      </ul>
+      <ol class="how" aria-label="So funktioniert es">
+        <li><b>Raum erstellen</b><span>Name eingeben, fertig. Ein Konto braucht niemand.</span></li>
+        <li><b>Link schicken</b><span>Per WhatsApp oder Discord. Freunde tippen nur ihren Namen ein.</span></li>
+        <li><b>Zusammen schauen</b><span>Wer Play drückt, startet es für alle.</span></li>
+      </ol>
+    </header>
 
-    <form id="formCreate" class="form" role="tabpanel" aria-labelledby="tabCreate" autocomplete="off">
-      <div class="field">
-        <label for="cName">Dein Name</label>
-        <div class="name-row"><input id="cName" class="input" maxlength="24" required placeholder="z. B. Kevin"><button class="icon-btn dice" type="button" data-dice="cName" aria-label="Zufälligen Namen würfeln" title="Zufallsname"><span class="ms">casino</span></button></div>
-      </div>
-      <div class="field">
-        <label for="cTitle">Raumname</label>
-        <input id="cTitle" class="input" maxlength="48" placeholder="z. B. Filmabend">
-      </div>
-      <div class="field" hidden>
-        <label for="cPass">Passwort (optional)</label>
-        <input id="cPass" class="input" type="password" maxlength="64" placeholder="Leer lassen für keinen Schutz">
-      </div>
-      <fieldset class="opts">
-        <legend>Im Raum erlauben</legend>
-        <label class="switch"><input type="checkbox" id="cVoice" checked> Sprachchat</label>
-        <label class="switch"><input type="checkbox" id="cCam" checked> Webcams (im Sprachchat)</label>
-      </fieldset>
-      <button class="btn btn-primary" type="submit"><span class="ms">add_circle</span>Raum erstellen</button>
-    </form>
+    <section class="ticket-area" aria-labelledby="lobbyTitle">
+      <div class="ticket">
+        <form id="formCreate" class="form tk-form" aria-label="Raum erstellen" autocomplete="off">
+          <div class="tk-main">
+            <div class="tk-head"><span class="tk-kind">Eintrittskarte</span><span class="tk-sub" id="tkCreateSub">Neuer Raum</span></div>
+            <div class="field">
+              <label for="cName">Dein Name</label>
+              <div class="name-row"><input id="cName" class="input" maxlength="24" required placeholder="z. B. Kevin"><button class="icon-btn dice" type="button" data-dice="cName" aria-label="Zufälligen Namen würfeln" title="Zufallsname"><span class="ms">casino</span></button></div>
+            </div>
+            <div class="field">
+              <label for="cTitle">Name des Raums <span class="opt">(freiwillig)</span></label>
+              <input id="cTitle" class="input" maxlength="48" placeholder="z. B. Filmabend">
+            </div>
+            <div class="field" hidden>
+              <label for="cPass">Passwort (optional)</label>
+              <input id="cPass" class="input" type="password" maxlength="64" placeholder="Leer lassen für keinen Schutz">
+            </div>
+            <fieldset class="opts">
+              <legend>Im Raum erlauben</legend>
+              <label class="switch"><input type="checkbox" id="cVoice" checked> Sprachchat</label>
+              <label class="switch"><input type="checkbox" id="cCam" checked> Webcams</label>
+            </fieldset>
+          </div>
+          <div class="tk-stub">
+            <button class="btn btn-primary tk-go" type="submit"><span class="ms">add_circle</span>Raum erstellen</button>
+          </div>
+        </form>
 
-    <form id="formJoin" class="form" role="tabpanel" aria-labelledby="tabJoin" autocomplete="off" hidden>
-      <div class="field">
-        <label for="jName">Dein Name</label>
-        <div class="name-row"><input id="jName" class="input" maxlength="24" required placeholder="z. B. Lisa"><button class="icon-btn dice" type="button" data-dice="jName" aria-label="Zufälligen Namen würfeln" title="Zufallsname"><span class="ms">casino</span></button></div>
-      </div>
-      <div class="field">
-        <label for="jCode">Raum-Code</label>
-        <input id="jCode" class="input" maxlength="12" required placeholder="z. B. K7Q-4MX" style="text-transform: uppercase; font-family: var(--mono); letter-spacing: .08em">
-      </div>
-      <div class="field" hidden>
-        <label for="jPass">Passwort</label>
-        <input id="jPass" class="input" type="password" maxlength="64" placeholder="Nur falls der Raum eins hat">
-      </div>
-      <button class="btn btn-primary" type="submit"><span class="ms">login</span>Beitreten</button>
-    </form>
+        <form id="formJoin" class="form tk-form" aria-label="Raum beitreten" autocomplete="off" hidden>
+          <div class="tk-main">
+            <div class="tk-head"><span class="tk-kind">Eintrittskarte</span><span class="tk-sub" id="tkJoinSub">Mit Code</span></div>
+            <div class="field">
+              <label for="jCode">Raum-Code</label>
+              <input id="jCode" class="input code-input" maxlength="12" required placeholder="K7Q-4MX" autocapitalize="characters" spellcheck="false">
+              <span class="hint">Steht in der Einladung, die du bekommen hast.</span>
+            </div>
+            <div class="field">
+              <label for="jName">Dein Name</label>
+              <div class="name-row"><input id="jName" class="input" maxlength="24" required placeholder="z. B. Lisa"><button class="icon-btn dice" type="button" data-dice="jName" aria-label="Zufälligen Namen würfeln" title="Zufallsname"><span class="ms">casino</span></button></div>
+            </div>
+            <div class="field" hidden>
+              <label for="jPass">Passwort</label>
+              <input id="jPass" class="input" type="password" maxlength="64" placeholder="Nur falls der Raum eins hat">
+            </div>
+          </div>
+          <div class="tk-stub">
+            <button class="btn btn-primary tk-go" type="submit"><span class="ms">login</span>Raum betreten</button>
+          </div>
+        </form>
 
-    <button class="ext-link" type="button" id="extBtn"><span class="ms">smart_display</span><span><b>Netflix, Disney+ oder Prime?</b><br><span class="muted">Mit der Chrome-Erweiterung (Beta) synchron schauen</span></span></button>
+        <div class="tk-foot tabs lobby-switch" aria-label="Raum erstellen oder beitreten">
+          <button class="tab" type="button" id="tabCreate" aria-selected="true" aria-controls="formCreate"><span>Noch kein Raum?</span> <b>Selbst einen erstellen</b></button>
+          <button class="tab" type="button" id="tabJoin" aria-selected="false" aria-controls="formJoin"><span>Du hast einen Code bekommen?</span> <b>Mit Code beitreten</b></button>
+        </div>
+      </div>
 
-    <div id="modeNote" class="mode-note" hidden>
-      <span class="ms" style="font-size:18px">science</span>
-      <span><b>Testmodus:</b> Noch nicht mit Supabase verbunden. Räume synchronisieren nur zwischen Tabs in diesem Browser.</span>
-    </div>
-  </section>
+      <button class="ext-link" type="button" id="extBtn" hidden><span class="ms">smart_display</span><span><b>Netflix, Disney+ oder Prime?</b><br><span class="muted">Mit der Chrome-Erweiterung (Beta) gemeinsam schauen</span></span></button>
+
+      <div id="modeNote" class="mode-note" hidden>
+        <span class="ms" style="font-size:18px">science</span>
+        <span><b>Testmodus:</b> Noch nicht mit Supabase verbunden. Räume synchronisieren nur zwischen Tabs in diesem Browser.</span>
+      </div>
+    </section>
+  </div>
+  <footer class="legal"><a href="impressum.html">Impressum</a><a href="datenschutz.html">Datenschutz</a></footer>
 </main>
 
 <!-- ================= ROOM ================= -->
@@ -111,6 +140,7 @@
         <div class="menu panel" id="meMenu" hidden role="menu">
           <div class="menu-head"><span class="muted" style="font-size:12px">Angemeldet als</span><b id="meName">—</b></div>
           <button type="button" role="menuitem" id="leaveBtn"><span class="ms">logout</span>Raum verlassen</button>
+          <div class="menu-legal"><a href="impressum.html" target="_blank" rel="noopener">Impressum</a><a href="datenschutz.html" target="_blank" rel="noopener">Datenschutz</a></div>
         </div>
       </div>
     </div>
@@ -188,7 +218,7 @@
         </div>
       </section>
 
-      <div class="card react-card"><span class="rc-label">Live Reaktion:</span><div class="react-bar" role="group" aria-label="Reaktionen" id="reactBar"></div></div>
+      <div class="card react-card"><span class="rc-label">Reagieren</span><div class="react-bar" role="group" aria-label="Reaktionen" id="reactBar"></div></div>
 
       <div class="notice" id="igHint" hidden><span class="ms">timer</span><span>Instagram lässt sich nicht fernsteuern. Drück den Countdown-Knopf (unten links), dann startet jeder bei „LOS!“ das Reel selbst.</span></div>
 
@@ -315,7 +345,7 @@
 
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
-<script src="config.js?v=62cb413d"></script>
-<script src="app.js?v=62cb413d"></script>
+<script src="config.js?v=0b61e75b"></script>
+<script src="app.js?v=0b61e75b"></script>
 </body>
 </html>

@@ -12,6 +12,16 @@ $$("[data-dice]").forEach(b => b.onclick = () => {
   inp.focus();
 });
 
+// Eintrittskarte: Raumname bzw. Code erscheint beim Tippen oben rechts auf der Karte
+function tkLive(inp, out, fallback) {
+  const i = $(inp), o = $(out); if (!i || !o) return;
+  const up = () => { o.textContent = i.value.trim() || fallback; };
+  i.addEventListener("input", up);
+  setTimeout(up, 0); // nach dem Start (Code aus dem Einladungslink) einmal übernehmen
+}
+tkLive("#cTitle", "#tkCreateSub", "Neuer Raum");
+tkLive("#jCode", "#tkJoinSub", "Mit Code");
+
 // ---------------------------------------------------------------- Einstiegs-Animation
 let fxStart = 0;
 function playEnterFx(code, creating) {

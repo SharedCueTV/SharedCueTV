@@ -65,7 +65,7 @@ function renderQueue() {
   $("#qClear").hidden = !all.length;
   const list = all.filter(q => filter === "all" || family(q.src) === filter);
   if (!list.length) {
-    $("#qList").innerHTML = `<div class="q-empty"><span class="ms">queue_music</span><div>${all.length ? "Nichts in diesem Filter." : "Die Warteschlange ist leer.<br>Füge oben einen Link hinzu."}</div></div>`;
+    $("#qList").innerHTML = `<div class="q-empty"><span class="ms">queue_music</span><div>${all.length ? "Nichts in diesem Filter." : "<b>Noch nichts in der Liste</b>Füge oben einen Link ein oder lade eine eigene Datei hoch. Alle im Raum können Videos dazulegen."}</div></div>`;
     return;
   }
   $("#qList").innerHTML = list.map(q => {
@@ -101,7 +101,7 @@ function renderChat() {
   box.innerHTML = all.length ? all.map(m => m.kind === "sys"
     ? `<div class="chat-sys">${esc(m.text)}</div>`
     : `<div class="chat-msg">${avatarHTML({ id: m.by, name: m.name, color: m.color })}<div class="bubble"><div><span class="nm">${esc(m.name)}</span><span class="ts">${hhmm(m.ts)}</span></div><div class="tx">${linkTimes(esc(m.text))}</div></div></div>`
-  ).join("") : `<div class="q-empty"><span class="ms">forum</span><div>Noch keine Nachrichten.</div></div>`;
+  ).join("") : `<div class="q-empty"><span class="ms">forum</span><div><b>Noch ist es ruhig hier</b>Schreib die erste Nachricht. Mit einer Zeitangabe wie 2:31 springen alle per Klick an die Stelle.</div></div>`;
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
 // "bei 2:31" im Chat → klickbarer Sprung für alle
@@ -159,13 +159,13 @@ function updateDrift() {
   const b = $("#driftBadge"), info = $("#syncInfo"), badge = $("#syncBadge");
   if (!state.video || !player || !player.ready) { b.hidden = true; info.textContent = state.video ? "Player lädt …" : "Warte auf Video …"; return; }
   b.hidden = false;
-  if (player.inAd) { $("#driftTxt").textContent = "WERBUNG"; info.textContent = "YouTube zeigt dir gerade Werbung. Danach springst du automatisch zu den anderen."; badge.textContent = "WERBUNG"; badge.className = "pill badge-warn"; return; }
-  if (player.manual) { $("#driftTxt").textContent = "COUNTDOWN"; info.textContent = "Instagram erlaubt keine Fernsteuerung. Drückt Play gemeinsam nach dem Countdown."; badge.textContent = "MANUELL"; badge.className = "pill badge-sync"; return; }
-  if (player.live) { $("#driftTxt").textContent = "LIVE"; info.textContent = "Livestream: Play und Pause werden geteilt. Spulen ist bei Live nicht möglich."; badge.textContent = "SYNCHRON"; badge.className = "pill badge-sync"; return; }
+  if (player.inAd) { $("#driftTxt").textContent = "Werbung läuft"; info.textContent = "YouTube zeigt dir gerade Werbung. Danach springst du automatisch zu den anderen."; badge.textContent = "WERBUNG"; badge.className = "pill badge-warn"; return; }
+  if (player.manual) { $("#driftTxt").textContent = "Countdown-Modus"; info.textContent = "Instagram erlaubt keine Fernsteuerung. Drückt Play gemeinsam nach dem Countdown."; badge.textContent = "MANUELL"; badge.className = "pill badge-sync"; return; }
+  if (player.live) { $("#driftTxt").textContent = "Live"; info.textContent = "Livestream: Play und Pause werden geteilt. Spulen ist bei Live nicht möglich."; badge.textContent = "SYNCHRON"; badge.className = "pill badge-sync"; return; }
   const d = Math.abs(player.time() - expectedPos());
   const leaderSelf = isLeader() && people.length > 1;
-  if (leaderSelf) { $("#driftTxt").textContent = "REFERENZ"; info.textContent = "Dein Player ist die Referenz, die anderen gleichen sich an dich an."; }
-  else { $("#driftTxt").textContent = `SYNC ${d.toFixed(1)}s`; info.textContent = d < 0.5 ? "Perfekt synchron." : d < DRIFT_MAX ? `Abweichung ${d.toFixed(1)} s – im grünen Bereich.` : `Abweichung ${d.toFixed(1)} s – hole auf …`; }
+  if (leaderSelf) { $("#driftTxt").textContent = "Du gibst den Takt an"; info.textContent = "Dein Player ist die Referenz, die anderen gleichen sich an dich an."; }
+  else { $("#driftTxt").textContent = d < 0.5 ? "Synchron" : `Synchron, ${d.toFixed(1).replace(".", ",")} s Abstand`; info.textContent = d < 0.5 ? "Perfekt synchron." : d < DRIFT_MAX ? `Abweichung ${d.toFixed(1)} s – im grünen Bereich.` : `Abweichung ${d.toFixed(1)} s – hole auf …`; }
   const ok = leaderSelf || d < DRIFT_MAX;
   badge.textContent = ok ? "SYNCHRON" : "HOLT AUF";
   badge.className = "pill " + (ok ? "badge-sync" : "badge-warn");

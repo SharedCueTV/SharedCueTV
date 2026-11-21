@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Datenschutz – SharedCueTV</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#090A10">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<style>
+@font-face { font-family: "Inter"; font-style: normal; font-display: swap; font-weight: 100 900; src: url(fonts/inter-latin-wght-normal.woff2) format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+:root { --bg: #090A10; --text: #E2E8F0; --muted: #94A3B8; --line: rgba(255,255,255,.08); --accent: #A5B4FC; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 16px/1.7 "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+main { max-width: 720px; margin: 0 auto; padding: 32px 20px 64px; }
+.back { display: inline-flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; font-weight: 800; letter-spacing: -0.02em; }
+.back img { width: 32px; height: 32px; }
+h1 { margin: 36px 0 8px; font-size: clamp(32px, 7vw, 44px); line-height: 1.1; letter-spacing: -0.03em; color: #fff; }
+h2 { margin: 40px 0 6px; font-size: 19px; letter-spacing: -0.01em; color: #fff; }
+p, li { color: var(--text); }
+ul { padding-left: 22px; }
+li { margin: 4px 0; }
+.muted { color: var(--muted); }
+.short { padding: 16px 18px; border-radius: 14px; background: rgba(99,102,241,.1); border: 1px solid rgba(99,102,241,.25); }
+.short p { margin: 0; }
+a { color: var(--accent); }
+mark { background: rgba(250, 204, 21, .18); color: #FDE68A; padding: 0 4px; border-radius: 4px; }
+footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--line); display: flex; gap: 20px; font-size: 14px; }
+footer a { color: var(--muted); text-decoration: none; }
+footer a:hover { color: #fff; text-decoration: underline; }
+</style>
+</head>
+<body>
+<main>
+  <a class="back" href="./"><img src="icon.svg" alt="">SharedCueTV</a>
+  <h1>Datenschutz</h1>
+  <div class="short"><p><b>Kurz gesagt:</b> Kein Konto, keine Cookies, kein Tracking, keine Datenbank. Chat und Raum-Zustand existieren nur in den Browsern der Leute im Raum und verschwinden, wenn alle gehen. Daten fließen aber an Dienste, die für das gemeinsame Schauen nötig sind. Welche das sind, steht unten.</p></div>
+
+  <h2>1. Verantwortlich</h2>
+  <p>Kevin Kunz<br>Vernaer Straße 22, 34621 Frielendorf<br>E-Mail: <a href="mailto:kevin_kunz98@web.de">kevin_kunz98@web.de</a></p>
+
+  <h2>2. Aufruf der Seite (Hosting bei GitHub Pages)</h2>
+  <p>Die Seite liegt bei GitHub Pages (GitHub, Inc., 88 Colin P. Kelly Jr. St, San Francisco, CA 94107, USA). Beim Aufruf verarbeitet GitHub technisch nötige Daten wie IP-Adresse, Zeitpunkt, aufgerufene Datei und Browser-Kennung, um die Seite auszuliefern und vor Missbrauch zu schützen. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an einer funktionierenden Seite). GitHub ist nach dem EU-US Data Privacy Framework zertifiziert. Mehr dazu in der <a href="https://docs.github.com/de/site-policy/privacy-policies/github-general-privacy-statement" rel="noopener">Datenschutzerklärung von GitHub</a>.</p>
+
+  <h2>3. Gemeinsamer Raum (Echtzeit-Verbindung über Supabase)</h2>
+  <p>Damit alle im Raum dasselbe sehen, verbindet sich dein Browser mit Supabase Realtime (Supabase, Inc., USA). Darüber laufen:</p>
+  <ul>
+    <li>dein gewählter Anzeigename, eine zufällige Teilnehmer-Kennung und eine Farbe,</li>
+    <li>Chatnachrichten, Reaktionen und Abstimmungen,</li>
+    <li>Steuerbefehle (Play, Pause, Spulen) und die Links in der Warteschlange,</li>
+    <li>Verbindungsdaten für Sprachchat, Webcams und Dateien (siehe Punkt 4).</li>
+  </ul>
+  <p>Diese Daten werden nur weitergereicht und nicht in einer Datenbank gespeichert. Technisch bedingt sieht Supabase dabei deine IP-Adresse. Der Raum-Code wird vor der Übertragung unkenntlich gemacht (Hash). Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO, weil du die Funktion selbst nutzt. Server-Standort: EU (Region „Central EU“, Frankfurt am Main). Mehr dazu in der <a href="https://supabase.com/privacy" rel="noopener">Datenschutzerklärung von Supabase</a>.</p>
+
+  <h2>4. Sprachchat, Webcams, Bildschirm und eigene Dateien (direkte Verbindungen)</h2>
+  <p>Diese Funktionen nutzen WebRTC: Ton, Bild und Dateien gehen direkt von Browser zu Browser zu den anderen im Raum und nicht über einen Server von SharedCueTV. Dafür tauschen die Browser ihre IP-Adressen untereinander aus. Wer mit dir im Raum ist, kann deine IP-Adresse also technisch sehen. Um die eigene öffentliche Adresse zu ermitteln, fragt dein Browser kurz bei STUN-Servern von Google (stun.l.google.com) und Cloudflare (stun.cloudflare.com) an. Kamera und Mikrofon werden nur genutzt, wenn du es im Browser erlaubst und selbst einschaltest. Es wird nichts aufgezeichnet.</p>
+
+  <h2>5. Eingebettete Videos</h2>
+  <p>Videos werden direkt im Player der jeweiligen Plattform abgespielt. Sobald ein Video aus dieser Plattform im Raum läuft, lädt dein Browser deren Player. Dabei erhält der Anbieter mindestens deine IP-Adresse und kann eigene Cookies setzen:</p>
+  <ul>
+    <li>YouTube (Google Ireland Limited, Irland), Vorschaubilder von i.ytimg.com</li>
+    <li>Twitch (Twitch Interactive, Inc., USA)</li>
+    <li>TikTok (TikTok Technology Limited, Irland)</li>
+    <li>Instagram (Meta Platforms Ireland Limited, Irland)</li>
+  </ul>
+  <p>Um den Titel eines YouTube-Videos anzuzeigen, wird der Video-Link außerdem an noembed.com geschickt. Auf das, was die Plattformen mit diesen Daten machen, hat SharedCueTV keinen Einfluss. Es gelten deren Datenschutzerklärungen. Rechtsgrundlage ist Art. 6 Abs. 1 lit. a DSGVO: Du entscheidest selbst, ob du in einem Raum Videos dieser Plattformen schaust oder hinzufügst.</p>
+
+  <h2>6. Speicher in deinem Browser</h2>
+  <p>Damit du nicht alles neu einstellen musst, merkt sich die Seite im Speicher deines Browsers (localStorage und sessionStorage, keine Cookies): deinen Namen, Lautstärke und Stummschaltung, persönliche Einstellungen wie Mikro-Hotkey oder Kamera-Ansicht, die Statistik eines Raums und für das Neuladen den zuletzt besuchten Raum. Diese Daten verlassen dein Gerät nicht. Du kannst sie jederzeit über die Browser-Einstellungen („Websitedaten löschen“) entfernen. Grundlage ist § 25 Abs. 2 Nr. 2 TDDDG, da die Speicherung für die von dir gewünschte Funktion nötig ist.</p>
+
+  <h2>7. Schriften</h2>
+  <p>Alle Schriften liegen auf dieser Seite selbst. Es werden keine Google Fonts oder andere externen Schriftdienste geladen.</p>
+
+  <h2>8. Deine Rechte</h2>
+  <p>Du hast das Recht auf Auskunft, Berichtigung, Löschung und Einschränkung der Verarbeitung, auf Datenübertragbarkeit sowie das Recht, einer Verarbeitung zu widersprechen (Art. 15 bis 21 DSGVO). Da SharedCueTV selbst keine Daten speichert, gibt es in der Regel nichts zu löschen. Melde dich trotzdem gern unter der oben genannten Adresse. Außerdem kannst du dich bei einer Datenschutz-Aufsichtsbehörde beschweren, zum Beispiel bei der in deinem Bundesland.</p>
+
+  <p class="muted">Stand: November 2026</p>
+
+  <footer><a href="./">Zurück zur Startseite</a><a href="impressum.html">Impressum</a></footer>
+</main>
+</body>
+</html>
